@@ -56,6 +56,46 @@ privacy. A change made directly in the camera manufacturer app will not
 automatically update a standalone helper. Other camera models can omit
 `privacy_entity`, leaving video unchanged by vendor scenes.
 
+### Read-only privacy state from Matter (experimental)
+
+Matter.js Server API schema 14 exposes live AV Stream Management privacy flags
+through `camera_get_capabilities`. The integration checks this every **5 seconds**
+and adds read-only `binary_sensor` entities when reported by the camera:
+
+- **Hardware privacy** → `hard_mode_on`
+- **Livestream privacy** → `soft_livestream_mode_enabled`
+- **Recording privacy** → `soft_recording_mode_enabled`
+- **Live view blocked** → logical OR of hardware privacy and livestream privacy.
+
+`ON` means the named privacy mode is active; `OFF` means it is not.
+An unsupported/missing attribute is **not** reported as OFF, and a connection
+failure marks sensors unavailable. The server returns a subscription-backed
+state, which may lag slightly behind the actual camera.
+
+To let the bundled card react when a camera's privacy mode changes **outside**
+Home Assistant, set this optional parameter to the actual HA entity ID:
+
+```yaml
+privacy_status_entity: binary_sensor.YOUR_CAMERA_LIVE_VIEW_BLOCKED
+```
+
+The card will suppress the native picture-entity player when **either** the
+user's `privacy_entity` helper is OFF **or** this reported privacy sensor
+is ON. Once neither blocks video, a new WebRTC session starts after the
+configurable resume delay. The Matter sensor is **read-only**; it does not
+toggle a physical shutter, and the existing helper automation remains optional.
+
+**Before trusting `hard_mode_on` as the G350's physical lens position**, test
+once with the lens open, then closed using Aqara scenes, watching the sensor
+for at least 10–15 seconds per change. The Matter standard defines a physical
+privacy switch, but a manufacturer's mechanical lens retraction can be
+implemented separately and may not modify this Matter attribute.
+If it stays OFF while the lens is closed, do not call it a shutter-position sensor.
+
+Do not expose the Matter Server WebSocket outside your LAN. If isolating the
+camera from the internet, test Matter video and PTZ separately from vendor
+cloud scenes: vendor automations may depend on Aqara Home's connectivity.
+
 ## Native Matter video (work in progress — feature branch only)
 
 This branch prototypes the built-in Home Assistant `camera` platform with
