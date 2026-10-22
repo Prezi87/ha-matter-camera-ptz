@@ -1,12 +1,12 @@
-# Matter Camera PTZ with WebRTC Camera (AlexxIT).
-# A working go2rtc stream named g350 is required for the video below.
-# Select ANY PTZ button entity created for this camera by Matter Camera PTZ.
+# Native Matter video + PTZ. Requires camera entity from the experimental branch.
+# Replace camera.* and button.* with your HA entity IDs.
+# Optional Aqara privacy helper is vendor-specific and managed separately in HA.
 type: custom:matter-camera-ptz-card
 title: Aqara G350
+native_camera_entity: camera.REPLACE_WITH_MATTER_LIVE_CAMERA
 ptz_entity: button.REPLACE_WITH_ACTUAL_PTZ_BUTTON
-stream: g350
 privacy_entity: input_boolean.g350_monitoring
-privacy_resume_delay_ms: 5000
+privacy_resume_delay_ms: 1000
 button_size: 62
 gap: 8
 pan_per_second: 30
@@ -15,5 +15,3 @@ tilt_per_second: 12
 tilt_max: 24
 zoom_delta: 5
 zoom_repeat_ms: 3500
-muted: true
-video_controls: false
