@@ -38,6 +38,40 @@ This project is unaffiliated with Aqara, Home Assistant, or Matter.js.
 
 Alternatively, copy the custom_components/matter_camera_ptz folder into your HA config/custom_components folder and restart HA.
 
+## Native Matter video (work in progress — feature branch only)
+
+This branch prototypes the built-in Home Assistant `camera` platform with
+WebRTC negotiated over the Matter.js Server WebSocket API, **without RTSP or go2rtc**.
+It has **not** been live-tested with Aqara G350 and must not replace the working
+HACS release until the draft PR is validated.
+
+- The backend probes `camera_get_capabilities` when the camera platform loads.
+  Only a camera advertising the `Video` feature gets a `camera.*` entity.
+  It requires **Matter Server API schema 14+**, independently of the Matter spec version.
+- Home Assistant's `async_handle_async_webrtc_offer` and ICE callbacks relay
+  signalling through a separate session-owning Matter Server WebSocket.
+  The WebRTC media itself stays between browser and camera.
+- If the camera advertises `Snapshot`, native HA thumbnails use
+  `camera_snapshot`; otherwise the snapshot call returns no image.
+- WebRTC connections are closed through `camera_stop_stream` on client close
+  or integration removal. This needs real-world reconnection and teardown tests.
+- To use a native HA camera entity in the bundled card, set
+  `native_camera_entity: camera.your_matter_camera_live` instead of `stream`.
+  The card then embeds HA's built-in picture-entity view (WebRTC).
+
+**Privacy and Aqara scenes:** No Aqara-specific scenes are hardcoded.
+The optional `privacy_entity` is a Home Assistant `input_boolean` and
+needs its own automation. Matter-standard privacy attributes will be exposed
+only when a camera advertises them; soft privacy != physical lens retraction.
+The current preview card's center button stays entirely optional.
+
+For now keep the existing Matter WebRTC Camera / go2rtc stream option as fallback.
+
+Relevant docs:
+- https://github.com/matter-js/matterjs-server/blob/main/docs/websockets_api.md
+- https://github.com/matter-js/matterjs-server/blob/main/docs/websocket-api-schema-changelog.md
+- https://developers.home-assistant.io/docs/core/entity/camera/
+
 ## One card: WebRTC video + PTZ joystick (experimental)
 
 **New in 0.2.0-beta.1:** A bundled Lovelace card displays a WebRTC live view above a compact PTZ joystick.

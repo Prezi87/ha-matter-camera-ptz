@@ -35,7 +35,7 @@ class MatterCameraPTZCard extends HTMLElement {
 
   setConfig(config) {
     if (!config.ptz_entity) throw new Error("Matter PTZ: ptz_entity is required");
-    if (!config.stream && !config.camera_entity) throw new Error("Matter PTZ: stream or camera_entity is required");
+    if (!config.stream && !config.camera_entity && !config.native_camera_entity) throw new Error("Matter PTZ: native_camera_entity, stream or camera_entity is required");
     this._config = {...config};
     if (this.isConnected) this._render();
   }
@@ -120,14 +120,19 @@ class MatterCameraPTZCard extends HTMLElement {
       if(typeof window.loadCardHelpers!=="function") throw new Error("Lovelace card helpers unavailable");
       const helpers=await window.loadCardHelpers();
       if(token!==this._token||!slot?.isConnected)return;
-      const config={
+      const config = this._config.native_camera_entity ? {
+        type:"picture-entity",
+        entity:this._config.native_camera_entity,
+        camera_view:"live",
+        show_name:false,
+        show_state:false
+      } : {
         type:"custom:webrtc-camera",
         muted:this._config.muted!==false,
         ui:Boolean(this._config.video_controls),
-        digital_ptz:false
+        digital_ptz:false,
+        ...(this._config.stream ? {url:this._config.stream} : {entity:this._config.camera_entity})
       };
-      if (this._config.stream) config.url=this._config.stream;
-      else config.entity=this._config.camera_entity;
       const player=helpers.createCardElement(config);
       this._player=player;
       if(this._hass)player.hass=this._hass;
