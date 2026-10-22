@@ -6,6 +6,8 @@ title: Aqara G350
 native_camera_entity: camera.REPLACE_WITH_MATTER_LIVE_CAMERA
 ptz_entity: button.REPLACE_WITH_ACTUAL_PTZ_BUTTON
 privacy_entity: input_boolean.g350_monitoring
+# Optional read-only Matter report. Add only after verifying the actual ID:
+# privacy_status_entity: binary_sensor.YOUR_CAMERA_LIVE_VIEW_BLOCKED
 privacy_resume_delay_ms: 1000
 button_size: 62
 gap: 8

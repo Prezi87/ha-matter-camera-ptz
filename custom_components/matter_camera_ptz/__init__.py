@@ -24,7 +24,7 @@ from .const import (
     DOMAIN,
 )
 
-PLATFORMS = [Platform.BUTTON, Platform.CAMERA]
+PLATFORMS = [Platform.BUTTON, Platform.CAMERA, Platform.BINARY_SENSOR]
 
 MOVE_SCHEMA = vol.Schema(
     {

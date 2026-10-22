@@ -67,3 +67,61 @@ test("card does not depend on an Aqara-specific helper", () => {
   card._config = { native_camera_entity: "camera.any_matter_camera" };
   assert.equal(card._syncPrivacyVideo(), false);
 });
+
+
+test("Matter privacy ON blocks video even if helper still requests monitoring", async () => {
+  const card = new Card();
+  card._config = {
+    native_camera_entity: "camera.g350_live",
+    privacy_entity: "input_boolean.g350_monitoring",
+    privacy_status_entity: "binary_sensor.g350_live_view_blocked",
+    privacy_resume_delay_ms: 0,
+  };
+  card._built = true;
+  Object.defineProperty(card, "isConnected", { value: true });
+  let paused = 0, restarted = 0;
+  card._refreshPrivacy = () => {};
+  card._pauseNativeVideo = () => { paused++; };
+  card._restartNativeVideo = () => { restarted++; };
+
+  const ha = (helper, sensed) => ({
+    states: {
+      "input_boolean.g350_monitoring": { state: helper },
+      "binary_sensor.g350_live_view_blocked": { state: sensed },
+    }
+  });
+
+  card.hass = ha("on", "off");
+  assert.equal(restarted, 1);
+  card.hass = ha("on", "on");
+  assert.equal(card._privacyMode, "off");
+  assert.equal(paused, 1);
+
+  card.hass = ha("on", "off");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(restarted, 2);
+  assert.equal(card._privacyMode, "on");
+
+  card.hass = ha("off", "off");
+  assert.equal(card._privacyMode, "off");
+  card.hass = ha("off", "off");
+  assert.equal(restarted, 2, "no unintended restart while helper is OFF");
+  card._cancelVideoRestart();
+});
+
+test("unknown Matter privacy is never treated as affirmative privacy-OFF", () => {
+  const card = new Card();
+  card._config = {
+    native_camera_entity: "camera.g350_live",
+    privacy_status_entity: "binary_sensor.g350_live_view_blocked",
+  };
+  card._built = true;
+  card._privacyMode = "off";
+  card._hass = {
+    states: {
+      "binary_sensor.g350_live_view_blocked": { state: "unavailable" },
+    },
+  };
+  assert.equal(card._syncPrivacyVideo(), true);
+  assert.equal(card._privacyMode, "off");
+});

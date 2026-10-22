@@ -1,4 +1,4 @@
-/* Matter Camera PTZ Card -- experimental v0.3.0-beta.1 */
+/* Matter Camera PTZ Card -- experimental v0.3.0-beta.2 */
 const directions = {
   left:["mdi:arrow-left-bold","Pan left"], right:["mdi:arrow-right-bold","Pan right"],
   up:["mdi:arrow-up-bold","Tilt up"], down:["mdi:arrow-down-bold","Tilt down"],
@@ -172,10 +172,25 @@ class MatterCameraPTZCard extends HTMLElement {
     this._restartNativeVideo();
   }
   _syncPrivacyVideo() {
-    if (!this._built || !this._config?.native_camera_entity || !this._config?.privacy_entity) return false;
-    const state = this._hass?.states?.[this._config.privacy_entity]?.state;
-    if (state !== "on" && state !== "off") return false;
-    if (this._privacyMode === state) return true; // Avoid reloading on every HA state update.
+    if (!this._built || !this._config?.native_camera_entity) return false;
+
+    // The HA helper contains the requested action; the optional Matter sensor
+    // reports the actual AVSM privacy state. Neither is manufacturer-specific.
+    const helperId = this._config.privacy_entity;
+    const sensorId = this._config.privacy_status_entity;
+    if (!helperId && !sensorId) return false;
+    const helper = helperId && this._hass?.states?.[helperId]?.state;
+    const reported = sensorId && this._hass?.states?.[sensorId]?.state;
+
+    // Never treat unknown/unavailable as a definitive privacy-OFF report.
+    const helperKnown = helper === "on" || helper === "off";
+    const sensorKnown = reported === "on" || reported === "off";
+    if (!helperKnown && !sensorKnown) return this._privacyMode === "off";
+
+    // OFF helper = user requested privacy; ON Matter sensor = camera reports
+    // privacy engaged. Either should suppress the video player immediately.
+    const state = (helper === "off" || reported === "on") ? "off" : "on";
+    if (this._privacyMode === state) return true;
     const previous = this._privacyMode;
     this._privacyMode = state;
     if (state === "off") {
@@ -189,7 +204,7 @@ class MatterCameraPTZCard extends HTMLElement {
           this._restartNativeVideo();
       }, delay);
     } else {
-      this._restartNativeVideo(); // Initially ON; no wake-up delay is needed.
+      this._restartNativeVideo();
     }
     return true;
   }
@@ -280,11 +295,18 @@ class MatterCameraPTZCard extends HTMLElement {
     if(!btn)return;
     const id=this._config?.privacy_entity;
     const state=id&&this._hass?.states?.[id];
-    btn.disabled=!state;
-    btn.classList.toggle("on",state?.state==="on");
-    btn.classList.toggle("off",state?.state!=="on");
-    btn.querySelector("ha-icon").setAttribute("icon",state?.state==="off"?"mdi:eye-off":"mdi:cctv");
-    btn.title=!id?"Set privacy_entity":!state?"Helper not found":state.state==="on"?"Monitoring on":"Privacy on";
+    const sensedId=this._config?.privacy_status_entity;
+    const sensed=sensedId&&this._hass?.states?.[sensedId]?.state;
+    const modeOff=state?.state==="off"||sensed==="on";
+    // The button triggers only the user's HA helper; Matter reporting is
+    // strictly read-only (particularly for physical privacy switches).
+    btn.disabled=!(state && state.state!=="unavailable" && state.state!=="unknown");
+    btn.classList.toggle("on",!modeOff);
+    btn.classList.toggle("off",modeOff);
+    btn.querySelector("ha-icon").setAttribute("icon",modeOff?"mdi:eye-off":"mdi:cctv");
+    btn.title=sensed==="on"?"Matter reports privacy active":
+      !id?"No privacy control configured (Matter state is read-only)":
+      !state?"Helper not found":modeOff?"Privacy on":"Monitoring on";
   }
   _status(value) {
     const el=this.shadowRoot.querySelector(".status");
