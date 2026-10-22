@@ -75,6 +75,7 @@ class MatterCameraPTZCard extends HTMLElement {
     this._stopAll();
     this._cancelVideoRestart();
     this._privacyMode = undefined;
+    this._lastReportedPrivacyState = undefined;
     const token=++this._token;
     const size=this._value("button_size",62,44,82);
     const gap=this._value("gap",8,4,18);
@@ -182,14 +183,17 @@ class MatterCameraPTZCard extends HTMLElement {
     const helper = helperId && this._hass?.states?.[helperId]?.state;
     const reported = sensorId && this._hass?.states?.[sensorId]?.state;
 
-    // Never treat unknown/unavailable as a definitive privacy-OFF report.
+    // A previously observed privacy-ON must never become OFF merely because
+    // a sensor lost availability. Require an explicit "off" report to clear it.
     const helperKnown = helper === "on" || helper === "off";
     const sensorKnown = reported === "on" || reported === "off";
+    if (sensorKnown) this._lastReportedPrivacyState = reported;
+    const effectiveReport = sensorKnown ? reported : this._lastReportedPrivacyState;
     if (!helperKnown && !sensorKnown) return this._privacyMode === "off";
 
     // OFF helper = user requested privacy; ON Matter sensor = camera reports
     // privacy engaged. Either should suppress the video player immediately.
-    const state = (helper === "off" || reported === "on") ? "off" : "on";
+    const state = (helper === "off" || effectiveReport === "on") ? "off" : "on";
     if (this._privacyMode === state) return true;
     const previous = this._privacyMode;
     this._privacyMode = state;
