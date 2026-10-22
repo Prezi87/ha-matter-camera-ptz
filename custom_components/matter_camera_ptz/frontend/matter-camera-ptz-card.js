@@ -1,4 +1,4 @@
-/* Matter Camera PTZ Card -- experimental v0.2.0-beta.1 */
+/* Matter Camera PTZ Card -- experimental v0.3.0-beta.1 */
 const directions = {
   left:["mdi:arrow-left-bold","Pan left"], right:["mdi:arrow-right-bold","Pan right"],
   up:["mdi:arrow-up-bold","Tilt up"], down:["mdi:arrow-down-bold","Tilt down"],
@@ -20,6 +20,9 @@ const css = [
   "button.on{color:var(--state-icon-active-color,var(--primary-color))}",
   "button.off{color:var(--secondary-text-color)}",
   "button:disabled{opacity:.32;cursor:default}",
+  ".head-actions{display:flex;align-items:center;gap:10px}",
+  ".head .video-reload{width:30px;height:30px;background:transparent;border:1px solid var(--divider-color)}",
+  ".head .video-reload ha-icon{--mdc-icon-size:17px}",
   ".status{text-align:center;font-size:0.75rem;min-height:18px;color:var(--secondary-text-color);padding:0 10px 9px}",
   "@media(max-width:340px){button ha-icon{--mdc-icon-size:23px}}"
 ].join("");
@@ -31,6 +34,8 @@ class MatterCameraPTZCard extends HTMLElement {
     this._pressed = new Map();
     this._timers = new Map();
     this._token = 0;
+    this._videoRestartTimer = null;
+    this._privacyMode = undefined;
   }
 
   setConfig(config) {
@@ -43,13 +48,21 @@ class MatterCameraPTZCard extends HTMLElement {
     this._hass = hass;
     if (this._player) this._player.hass = hass;
     this._refreshPrivacy();
+    this._syncPrivacyVideo();
   }
   getCardSize() { return 7; }
   getGridOptions() { return {columns:12,min_columns:6,rows:8}; }
   static getStubConfig() { return {ptz_entity:"button.replace_with_ptz_entity",stream:"go2rtc_stream_name"}; }
 
   connectedCallback() { if (this._config && !this._built) this._render(); }
-  disconnectedCallback() { this._stopAll(); this._token++; this._built=false; }
+  disconnectedCallback() {
+    this._stopAll();
+    this._cancelVideoRestart();
+    this._token++;
+    this._player = null;
+    this._privacyMode = undefined;
+    this._built = false;
+  }
 
   _stopAll() {
     for (const timer of this._timers.values()) clearInterval(timer);
@@ -59,17 +72,20 @@ class MatterCameraPTZCard extends HTMLElement {
 
   _render() {
     this._stopAll();
+    this._cancelVideoRestart();
+    this._privacyMode = undefined;
     const token=++this._token;
     const size=this._value("button_size",62,44,82);
     const gap=this._value("gap",8,4,18);
     this._player=null;
     this.shadowRoot.innerHTML="<style>"+css+"</style>"+
       '<ha-card style="--ptz-size:'+size+'px;--ptz-gap:'+gap+'px">'+
-      '<div class="head"><strong class="title"></strong><small>WebRTC</small></div>'+
+      '<div class="head"><strong class="title"></strong><div class="head-actions"><small>WebRTC</small><button class="video-reload" type="button" title="Ponów podgląd" aria-label="Ponów podgląd"><ha-icon icon="mdi:refresh"></ha-icon></button></div></div>'+
       '<div class="video"><div class="error">Loading WebRTC video...</div></div>'+
       '<div class="controls" role="group" aria-label="Camera pan tilt zoom"></div>'+
       '<div class="status" role="status" aria-live="polite"></div></ha-card>';
     this.shadowRoot.querySelector(".title").textContent=this._config.title||"Matter Camera PTZ";
+    this.shadowRoot.querySelector(".video-reload").addEventListener("click",()=>this._manualReloadVideo());
     const grid=this.shadowRoot.querySelector(".controls");
     for (const dir of [null,"up",null,"zoom_in","left","privacy","right","zoom_out",null,"down",null,null]) {
       if (!dir) { grid.appendChild(document.createElement("span")); continue; }
@@ -111,7 +127,70 @@ class MatterCameraPTZCard extends HTMLElement {
     }
     this._built=true;
     this._refreshPrivacy();
-    this._loadVideo(token);
+    if (!this._syncPrivacyVideo()) this._loadVideo(token);
+  }
+
+  // The HA camera preview does not automatically renegotiate WebRTC after
+  // a privacy-mode disconnect. Tear down the child and create a NEW instance.
+  // Only the optional HA helper is used here; it stores the *requested* mode.
+  _cancelVideoRestart() {
+    if (this._videoRestartTimer !== null) clearTimeout(this._videoRestartTimer);
+    this._videoRestartTimer = null;
+  }
+  _videoPlaceholder(message) {
+    const slot = this.shadowRoot.querySelector(".video");
+    if (!slot) return;
+    const note = document.createElement("div");
+    note.className = "error";
+    note.textContent = message;
+    slot.replaceChildren(note);
+  }
+  _pauseNativeVideo(message) {
+    this._cancelVideoRestart();
+    this._token++; // Invalidate any pending asynchronous card creation.
+    this._player = null; // Disconnect existing picture-entity / WebRTC session.
+    this._videoPlaceholder(message);
+  }
+  _restartNativeVideo() {
+    if (!this.isConnected || !this._built) return;
+    if (this._privacyMode === "off") {
+      this._pauseNativeVideo("Tryb prywatności — transmisja wyłączona");
+      return;
+    }
+    this._cancelVideoRestart();
+    this._token++;
+    this._player = null;
+    this._videoPlaceholder("Nawiązywanie nowej sesji WebRTC...");
+    this._loadVideo(this._token);
+  }
+  _manualReloadVideo() {
+    if (this._privacyMode === "off") {
+      this._status("Najpierw wyłącz tryb prywatności");
+      return;
+    }
+    this._restartNativeVideo();
+  }
+  _syncPrivacyVideo() {
+    if (!this._built || !this._config?.native_camera_entity || !this._config?.privacy_entity) return false;
+    const state = this._hass?.states?.[this._config.privacy_entity]?.state;
+    if (state !== "on" && state !== "off") return false;
+    if (this._privacyMode === state) return true; // Avoid reloading on every HA state update.
+    const previous = this._privacyMode;
+    this._privacyMode = state;
+    if (state === "off") {
+      this._pauseNativeVideo("Tryb prywatności — podgląd wyłączony");
+    } else if (previous === "off") {
+      const delay = this._value("privacy_resume_delay_ms", 5000, 0, 30000);
+      this._pauseNativeVideo("Włączanie kamery — ponowne łączenie...");
+      this._videoRestartTimer = setTimeout(() => {
+        this._videoRestartTimer = null;
+        if (this.isConnected && this._built && this._privacyMode === "on")
+          this._restartNativeVideo();
+      }, delay);
+    } else {
+      this._restartNativeVideo(); // Initially ON; no wake-up delay is needed.
+    }
+    return true;
   }
 
   async _loadVideo(token) {
