@@ -47,7 +47,7 @@ returns **ON**, the card waits for the camera to wake up and creates a **new**
 picture-entity WebRTC session instead of keeping the failed previous one.
 
 Optional setting: `privacy_resume_delay_ms: 5000` (default 5000, allowed 0–30000).
-If the camera takes longer to wake up, increase it (e.g. 7000–9000).
+**Aqara G350 tested successfully with `privacy_resume_delay_ms: 1000`** after turning monitoring back on (one-second restart delay). Other cameras may need the longer default; increase to e.g. 7000–9000 if needed.
 A small refresh icon in the card header manually restarts video without
 reloading the entire Home Assistant dashboard.
 
@@ -60,7 +60,7 @@ automatically update a standalone helper. Other camera models can omit
 
 This branch prototypes the built-in Home Assistant `camera` platform with
 WebRTC negotiated over the Matter.js Server WebSocket API, **without RTSP or go2rtc**.
-It has **not** been live-tested with Aqara G350 and must not replace the working
+The native `camera` entity and live video were successfully tested on Aqara G350, but stability testing is incomplete. Do not replace the working
 HACS release until the draft PR is validated.
 
 - The backend probes `camera_get_capabilities` when the camera platform loads.
@@ -89,6 +89,10 @@ Relevant docs:
 - https://github.com/matter-js/matterjs-server/blob/main/docs/websockets_api.md
 - https://github.com/matter-js/matterjs-server/blob/main/docs/websocket-api-schema-changelog.md
 - https://developers.home-assistant.io/docs/core/entity/camera/
+
+### Tested Aqara G350 native video example
+
+The G350 restored its live WebRTC view automatically after turning monitoring ON with a one-second delay. To use a native Matter `camera` entity, see [the example card](examples/webrtc_ptz_card.yaml). This example does not require AlexxIT WebRTC Camera or go2rtc.
 
 ## One card: WebRTC video + PTZ joystick (experimental)
 
@@ -141,7 +145,7 @@ Restrict go2rtc's unauthenticated management port 1984 to trusted networks.
 
 See also [the complete example](examples/webrtc_ptz_card.yaml).
 
-**Known limitation:** This frontend card has not yet been tested in a live HA dashboard. The backend integration has been tested by an Aqara G350 user.
+**Known limitation:** A user has tested the native video card and confirmed auto-recovery with a 1000 ms delay on Aqara G350; long-term stability, multi-viewer operation, and compatibility with other cameras remain untested.
 Report browser console errors with private IPs, passwords and tokens removed.
 
 ## Service / action for custom distance
@@ -179,10 +183,10 @@ last requested setting, **not** the physical privacy state of the camera.
 ## Limitations and testing
 
 - This is a **beta prototype**. Config flow, entity setup, options, and custom action require real HA testing.
-- Video preview is not provided; retain your existing video integration.
+- On the experimental branch, native Matter live video and JPEG snapshot work with Aqara G350; existing go2rtc fallback remains available.
 - Other camera models have not been verified. Discovery relies on Matter PTZ cluster 1362.
-- A bundled experimental joystick card is included, but has not yet been live-tested; no Home Assistant Brands entry or formal HACS store approval yet.
-- CI checks Python/JSON/YAML syntax only; passing is **not** proof of runtime compatibility.
+- A bundled experimental joystick and native video card has been tested on Aqara G350, but requires more reliability testing; no Home Assistant Brands entry or formal HACS store approval yet.
+- CI checks Python/JSON/YAML and JavaScript syntax plus privacy-toggle unit behavior; passing is **not** proof of broad runtime compatibility.
 
 If you can test with a compatible camera, please open an issue with model, firmware,
 Matter Server version, Home Assistant version and **redacted** logs.
