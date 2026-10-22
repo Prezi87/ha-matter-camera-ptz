@@ -45,6 +45,9 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # Custom repository: topics require GitHub repository admin access.
+          # Remove this ignore after setting topics in GitHub's About sidebar.
+          ignore: topics
   hassfest:
     name: Hassfest
     runs-on: ubuntu-latest
