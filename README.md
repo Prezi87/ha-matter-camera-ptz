@@ -56,6 +56,48 @@ privacy. A change made directly in the camera manufacturer app will not
 automatically update a standalone helper. Other camera models can omit
 `privacy_entity`, leaving video unchanged by vendor scenes.
 
+### Native WebRTC startup timing diagnostics (WAN-isolated cameras)
+
+Aqara G350 has been tested with WAN blocked by OpenWrt: native Matter snapshots,
+PTZ, physical privacy switch and WebRTC still function. In that configuration,
+**first live video took ~7s**, even though privacy sensors switched almost
+immediately. Setting `privacy_resume_delay_ms: 0` and using a plain
+`picture-entity` HA card did not help, so the bottleneck is not the joystick.
+
+The experimental backend logs elapsed times at INFO level, **without**
+SDP or ICE candidate IP addresses:
+
+- `start`: HA requested a new WebRTC stream.
+- `Matter Server WebSocket ready`: signaling socket opened.
+- `first browser ICE`: browser candidate arrived (may be queued).
+- `camera SDP answer`: the camera's SDP answer arrived.
+- `first camera ICE candidates`: first camera candidate batch arrived.
+- `camera_start_stream completed`: Matter Server confirmed stream startup.
+- `stream teardown`: time until session was closed.
+
+Enable in HA **Developer Tools → Actions**:
+
+```yaml
+action: logger.set_level
+data:
+  custom_components.matter_camera_ptz.video: info
+```
+
+Turn native Privacy mode ON and OFF twice, then inspect the HA log:
+
+```bash
+docker exec homeassistant sh -c \
+  'grep "Matter video timing:" /config/home-assistant.log | tail -n 50'
+```
+
+If this image logs to stdout instead, use `docker logs homeassistant --since 5m`.
+Share only `Matter video timing` lines, not raw SDP, ICE candidates or tokens.
+These timings cover Matter signaling, **not arrival of the browser's first
+video frame**. If signaling finishes quickly but video appears ~7s later,
+inspect the browser's WebRTC stats/selected ICE candidate pair next.
+
+The timing change has no effect on WebRTC behavior, privacy switch or PTZ.
+
 ### Native Matter privacy switch (experimental)
 
 With the local Aqara G350, writing Matter AV Stream Management cluster 1361
