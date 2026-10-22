@@ -1,11 +1,14 @@
-# Matter Camera PTZ with WebRTC Camera (AlexxIT).
-# A working go2rtc stream named g350 is required for the video below.
-# Select ANY PTZ button entity created for this camera by Matter Camera PTZ.
+# Native Matter 1.5 camera video + PTZ + verified G350 physical privacy.
+# Replace placeholders with actual Home Assistant entity IDs on your camera.
 type: custom:matter-camera-ptz-card
 title: Aqara G350
+native_camera_entity: camera.REPLACE_WITH_MATTER_LIVE_CAMERA
 ptz_entity: button.REPLACE_WITH_ACTUAL_PTZ_BUTTON
-stream: g350
-privacy_entity: input_boolean.g350_monitoring
+# Native switch: ON privacy, OFF monitoring. Does not use Aqara scenes.
+privacy_switch_entity: switch.REPLACE_WITH_MATTER_PRIVACY_MODE
+# Optional read-only sensor from Matter:
+privacy_status_entity: binary_sensor.REPLACE_WITH_LIVE_VIEW_BLOCKED
+privacy_resume_delay_ms: 1000
 button_size: 62
 gap: 8
 pan_per_second: 30
@@ -14,5 +17,3 @@ tilt_per_second: 12
 tilt_max: 24
 zoom_delta: 5
 zoom_repeat_ms: 3500
-muted: true
-video_controls: false
