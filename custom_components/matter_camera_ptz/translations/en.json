@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Matter Server",
+        "description": "Enter the WebSocket URL of the Matter Server.",
+        "data": {
+          "url": "WebSocket URL"
+        }
+      },
+      "camera": {
+        "title": "Select PTZ camera",
+        "data": {
+          "camera": "Camera"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Enter a ws:// or wss:// URL.",
+      "cannot_connect": "Could not connect to Matter Server.",
+      "no_cameras": "No PTZ camera was discovered on this Matter Server."
+    },
+    "abort": {
+      "already_configured": "This camera is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "PTZ control settings",
+        "data": {
+          "pan_step": "Pan step",
+          "tilt_step": "Tilt step",
+          "zoom_step": "Zoom step",
+          "cooldown": "Minimum interval between commands (seconds)"
+        }
+      }
+    }
+  },
+  "services": {
+    "move": {
+      "name": "Move camera",
+      "description": "Move a PTZ camera by a given relative amount.",
+      "fields": {
+        "entity_id": {
+          "name": "Camera PTZ button entity"
+        },
+        "direction": {
+          "name": "Direction"
+        },
+        "delta": {
+          "name": "Movement amount"
+        }
+      }
+    }
+  }
+}

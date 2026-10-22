@@ -1,0 +1,33 @@
+move:
+  name: Move camera
+  description: Move a Matter camera using a relative PTZ command.
+  fields:
+    entity_id:
+      name: Camera PTZ button entity
+      description: Select any button entity belonging to the camera you want to move.
+      required: true
+      selector:
+        entity:
+          domain: button
+    direction:
+      name: Direction
+      required: true
+      selector:
+        select:
+          options:
+            - left
+            - right
+            - up
+            - down
+            - zoom_in
+            - zoom_out
+    delta:
+      name: Movement amount
+      description: Relative Matter PTZ units; the camera may clamp to its mechanical limits.
+      required: true
+      example: 30
+      selector:
+        number:
+          min: 1
+          max: 180
+          mode: box

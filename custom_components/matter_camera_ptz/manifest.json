@@ -1,0 +1,13 @@
+{
+  "domain": "matter_camera_ptz",
+  "name": "Matter Camera PTZ",
+  "version": "0.1.0-beta.1",
+  "config_flow": true,
+  "documentation": "https://github.com/Prezi87/ha-matter-camera-ptz",
+  "issue_tracker": "https://github.com/Prezi87/ha-matter-camera-ptz/issues",
+  "codeowners": [],
+  "dependencies": [],
+  "requirements": [],
+  "integration_type": "device",
+  "iot_class": "assumed_state"
+}
