@@ -6,6 +6,7 @@ title: Aqara G350
 ptz_entity: button.REPLACE_WITH_ACTUAL_PTZ_BUTTON
 stream: g350
 privacy_entity: input_boolean.g350_monitoring
+privacy_resume_delay_ms: 5000
 button_size: 62
 gap: 8
 pan_per_second: 30

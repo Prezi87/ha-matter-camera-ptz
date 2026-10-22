@@ -38,6 +38,24 @@ This project is unaffiliated with Aqara, Home Assistant, or Matter.js.
 
 Alternatively, copy the custom_components/matter_camera_ptz folder into your HA config/custom_components folder and restart HA.
 
+### Automatic recovery after privacy mode (experimental)
+
+If `native_camera_entity` and `privacy_entity` are set, this card now observes the
+Home Assistant helper state. When the helper goes **OFF** (privacy), the card
+removes its embedded live player and displays a privacy placeholder. When it
+returns **ON**, the card waits for the camera to wake up and creates a **new**
+picture-entity WebRTC session instead of keeping the failed previous one.
+
+Optional setting: `privacy_resume_delay_ms: 5000` (default 5000, allowed 0–30000).
+If the camera takes longer to wake up, increase it (e.g. 7000–9000).
+A small refresh icon in the card header manually restarts video without
+reloading the entire Home Assistant dashboard.
+
+This is based on the HA helper's **requested** state, not verified camera
+privacy. A change made directly in the camera manufacturer app will not
+automatically update a standalone helper. Other camera models can omit
+`privacy_entity`, leaving video unchanged by vendor scenes.
+
 ## Native Matter video (work in progress — feature branch only)
 
 This branch prototypes the built-in Home Assistant `camera` platform with
