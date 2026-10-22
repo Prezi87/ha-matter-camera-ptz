@@ -85,12 +85,33 @@ is ON. Once neither blocks video, a new WebRTC session starts after the
 configurable resume delay. The Matter sensor is **read-only**; it does not
 toggle a physical shutter, and the existing helper automation remains optional.
 
-**Before trusting `hard_mode_on` as the G350's physical lens position**, test
-once with the lens open, then closed using Aqara scenes, watching the sensor
-for at least 10–15 seconds per change. The Matter standard defines a physical
-privacy switch, but a manufacturer's mechanical lens retraction can be
-implemented separately and may not modify this Matter attribute.
-If it stays OFF while the lens is closed, do not call it a shutter-position sensor.
+### Verified Aqara Camera Hub G350 physical shutter states (2026-10-22)
+
+A user tested the G350 with its lens exposed, then physically retracted using
+the existing Aqara privacy scene. After 10–15 seconds, Matter reporting showed:
+
+| Matter privacy state | Lens exposed | Lens retracted |
+|---|---|---|
+| `hard_mode_on` | false | **true** |
+| `soft_livestream_mode_enabled` | false | **true** |
+| `soft_recording_mode_enabled` | false | **true** |
+| Computed `live_view_blocked` | false | **true** |
+
+This confirms **read-only detection** of the G350's physical privacy state
+in this tested setup. It does **not** establish that Matter can actuate the
+mechanical lens cover. Matter's `HardPrivacyModeOn` is a reported attribute,
+not a universal writable command to retract a lens. Aqara scenes remain
+optional external actions for physical actuation until verified otherwise.
+
+For the G350, we recommend specifying the real `Live view blocked` binary
+sensor entity ID as `privacy_status_entity` in the card, retaining
+`privacy_entity` only if an input_boolean is currently used to trigger
+manufacturer-specific scenes. The sensor is the *observed* state; the helper is
+the *requested* state. Do not synchronize the helper back from the sensor
+without guarding against automation loops.
+
+For cameras other than G350, hardware-to-Matter privacy mapping remains
+unverified. Sensor availability and polling delay must be considered.
 
 Do not expose the Matter Server WebSocket outside your LAN. If isolating the
 camera from the internet, test Matter video and PTZ separately from vendor
