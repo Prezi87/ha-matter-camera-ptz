@@ -56,6 +56,45 @@ privacy. A change made directly in the camera manufacturer app will not
 automatically update a standalone helper. Other camera models can omit
 `privacy_entity`, leaving video unchanged by vendor scenes.
 
+### Controlled local write test: soft privacy (Aqara G350)
+
+**Hardware privacy is read-only in Matter.** To discover whether the G350's
+motorized physical shutter follows *soft* privacy changes, run the explicit
+diagnostic in [tools/avsm_privacy_probe.py](tools/avsm_privacy_probe.py) on the
+Home Assistant host. This is a manual test and does not create permanent HA
+services, change scenes or persist controller credentials.
+
+The probe only touches AV Stream Management (cluster **1361**, endpoint **2**)
+attributes **19** (soft recording privacy) and **20** (soft livestream privacy).
+It **never writes attribute 21** (hardware privacy).
+
+Run these commands **inside the host-network HA Docker container** after
+copying the script into `/config/avsm_privacy_probe.py`:
+
+```bash
+python3 /config/avsm_privacy_probe.py status --node 12 --endpoint 2
+python3 /config/avsm_privacy_probe.py soft-on --node 12 --endpoint 2
+# Previous command is a dry run; actual changes require --execute:
+python3 /config/avsm_privacy_probe.py soft-on --node 12 --endpoint 2 --execute
+python3 /config/avsm_privacy_probe.py status --node 12 --endpoint 2
+python3 /config/avsm_privacy_probe.py soft-off --node 12 --endpoint 2 --execute
+```
+
+Run the test while the lens is exposed and the existing HA privacy helper
+requests monitoring ON. Watch whether the **physical shutter retracts** after
+`soft-on`. After `soft-off`, verify that it opens again. If it does not
+open, restore the existing Aqara scene manually. A `Status: 0` response only
+proves the **software attribute write**, not physical lens actuation.
+
+Previously observed on a separate G350 firmware 4.5.70 via SmartThings:
+these two soft attributes accept writes, but the test did not establish that
+writing them physically retracts the lens.
+See https://github.com/SmartThingsCommunity/SmartThingsEdgeDrivers/issues/3182.
+
+Never send an attempted write to `HardPrivacyModeOn` (attribute 21).
+Do not cut off the camera's internet until after testing the cloud-dependent
+vendor scene fallback and local IPv6/Matter connectivity.
+
 ### Read-only privacy state from Matter (experimental)
 
 Matter.js Server API schema 14 exposes live AV Stream Management privacy flags
