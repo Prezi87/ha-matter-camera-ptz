@@ -1,4 +1,4 @@
-/* Matter Camera PTZ Card -- experimental v0.3.0-beta.2 */
+/* Matter Camera PTZ Card -- experimental v0.3.0-beta.3 */
 const directions = {
   left:["mdi:arrow-left-bold","Pan left"], right:["mdi:arrow-right-bold","Pan right"],
   up:["mdi:arrow-up-bold","Tilt up"], down:["mdi:arrow-down-bold","Tilt down"],
@@ -175,26 +175,32 @@ class MatterCameraPTZCard extends HTMLElement {
   _syncPrivacyVideo() {
     if (!this._built || !this._config?.native_camera_entity) return false;
 
-    // The HA helper contains the requested action; the optional Matter sensor
-    // reports the actual AVSM privacy state. Neither is manufacturer-specific.
-    const helperId = this._config.privacy_entity;
+    // Optional native switch takes precedence over the old input_boolean.
+    // A switch ON means privacy engaged; old helper OFF meant monitoring off.
+    const controlId = this._config.privacy_switch_entity || this._config.privacy_entity;
+    const nativeControl = Boolean(this._config.privacy_switch_entity);
     const sensorId = this._config.privacy_status_entity;
-    if (!helperId && !sensorId) return false;
-    const helper = helperId && this._hass?.states?.[helperId]?.state;
+    if (!controlId && !sensorId) return false;
+
+    const control = controlId && this._hass?.states?.[controlId]?.state;
     const reported = sensorId && this._hass?.states?.[sensorId]?.state;
-
-    // A previously observed privacy-ON must never become OFF merely because
-    // a sensor lost availability. Require an explicit "off" report to clear it.
-    const helperKnown = helper === "on" || helper === "off";
+    const controlKnown = control === "on" || control === "off";
     const sensorKnown = reported === "on" || reported === "off";
-    if (sensorKnown) this._lastReportedPrivacyState = reported;
-    const effectiveReport = sensorKnown ? reported : this._lastReportedPrivacyState;
-    if (!helperKnown && !sensorKnown) return this._privacyMode === "off";
 
-    // OFF helper = user requested privacy; ON Matter sensor = camera reports
-    // privacy engaged. Either should suppress the video player immediately.
-    const state = (helper === "off" || effectiveReport === "on") ? "off" : "on";
+    // Keep the last observed privacy ON through temporary sensor outages.
+    // Never translate "unavailable" into "off".
+    if (sensorKnown) this._lastReportedPrivacyState = reported;
+    else if (!sensorId && nativeControl && controlKnown)
+      this._lastReportedPrivacyState = control;
+
+    const reportedState = sensorKnown ? reported : this._lastReportedPrivacyState;
+    if (!controlKnown && !sensorKnown)
+      return this._privacyMode === "off";
+
+    const privacyRequested = nativeControl ? control === "on" : control === "off";
+    const state = (privacyRequested || reportedState === "on") ? "off" : "on";
     if (this._privacyMode === state) return true;
+
     const previous = this._privacyMode;
     this._privacyMode = state;
     if (state === "off") {
@@ -290,29 +296,36 @@ class MatterCameraPTZCard extends HTMLElement {
     } catch(err) {this._status("PTZ error: "+String(err?.message||err));}
   }
   async _togglePrivacy() {
-    if(!this._config.privacy_entity||!this._hass)return;
-    try {await this._hass.callService("input_boolean","toggle",{entity_id:this._config.privacy_entity});}
-    catch(err){this._status("Privacy error: "+String(err?.message||err));}
+    if (!this._hass) return;
+    const nativeId = this._config?.privacy_switch_entity;
+    const legacyId = this._config?.privacy_entity;
+    if (!nativeId && !legacyId) return;
+    const domain = nativeId ? "switch" : "input_boolean";
+    const entity_id = nativeId || legacyId;
+    try {
+      await this._hass.callService(domain, "toggle", {entity_id});
+    } catch(err) {
+      this._status("Privacy error: "+String(err?.message||err));
+    }
   }
+
   _refreshPrivacy() {
-    const btn=this.shadowRoot.querySelector('[data-direction="privacy"]');
-    if(!btn)return;
-    const id=this._config?.privacy_entity;
-    const state=id&&this._hass?.states?.[id];
-    const sensedId=this._config?.privacy_status_entity;
-    const sensed=sensedId&&this._hass?.states?.[sensedId]?.state;
-    const effectiveSensed=(sensed==="on"||sensed==="off") ? sensed : this._lastReportedPrivacyState;
-    const modeOff=state?.state==="off"||effectiveSensed==="on";
-    // The button triggers only the user's HA helper; Matter reporting is
-    // strictly read-only (particularly for physical privacy switches).
-    btn.disabled=!(state && state.state!=="unavailable" && state.state!=="unknown");
-    btn.classList.toggle("on",!modeOff);
-    btn.classList.toggle("off",modeOff);
-    btn.querySelector("ha-icon").setAttribute("icon",modeOff?"mdi:eye-off":"mdi:cctv");
-    btn.title=effectiveSensed==="on"?"Matter reports privacy active (or last known active)":
-      !id?"No privacy control configured (Matter state is read-only)":
-      !state?"Helper not found":modeOff?"Privacy on":"Monitoring on";
+    const btn = this.shadowRoot.querySelector('[data-direction="privacy"]');
+    if (!btn) return;
+    const nativeId = this._config?.privacy_switch_entity;
+    const id = nativeId || this._config?.privacy_entity;
+    const state = id && this._hass?.states?.[id];
+    const blocked = this._privacyMode === "off" ||
+      (nativeId ? state?.state === "on" : state?.state === "off");
+    btn.disabled = !state || (state.state !== "on" && state.state !== "off");
+    btn.classList.toggle("on", !blocked);
+    btn.classList.toggle("off", blocked);
+    btn.querySelector("ha-icon").setAttribute("icon", blocked ? "mdi:eye-off" : "mdi:cctv");
+    btn.title = !id ? "No privacy control configured" :
+      !state ? "Privacy control entity not found" :
+      blocked ? "Privacy active" : "Monitoring active";
   }
+
   _status(value) {
     const el=this.shadowRoot.querySelector(".status");
     if(el)el.textContent=value;

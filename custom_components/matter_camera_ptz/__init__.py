@@ -14,6 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, entity_registry as er
 
 from .api import MatterCameraPTZ
+from .privacy import MatterPrivacyCoordinator
 from .const import (
     CONF_COOLDOWN,
     CONF_ENDPOINT_ID,
@@ -24,7 +25,7 @@ from .const import (
     DOMAIN,
 )
 
-PLATFORMS = [Platform.BUTTON, Platform.CAMERA, Platform.BINARY_SENSOR]
+PLATFORMS = [Platform.BUTTON, Platform.CAMERA, Platform.BINARY_SENSOR, Platform.SWITCH]
 
 MOVE_SCHEMA = vol.Schema(
     {
@@ -67,6 +68,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         float(entry.options.get(CONF_COOLDOWN, DEFAULT_COOLDOWN)),
     )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = ptz
+
+    # One coordinator shared by read-only privacy sensors and writable switch.
+    # Privacy probing is optional and must never block PTZ/video setup.
+    coordinator = MatterPrivacyCoordinator(hass, entry)
+    await coordinator.async_refresh()
+    hass.data.setdefault(f"{DOMAIN}_privacy", {})[entry.entry_id] = coordinator
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_update_options))
     return True
@@ -81,5 +89,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a configured camera."""
     if await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id, None)
+        hass.data.get(f"{DOMAIN}_privacy", {}).pop(entry.entry_id, None)
         return True
     return False

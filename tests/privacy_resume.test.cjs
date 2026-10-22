@@ -159,3 +159,69 @@ test("last known privacy ON persists across Matter sensor outage until explicit 
   assert.equal(restarted, 2);
   card._cancelVideoRestart();
 });
+
+
+test("native Matter privacy switch supersedes legacy Aqara helper", async () => {
+  const card = new Card();
+  const commands = [];
+  card._config = {
+    native_camera_entity: "camera.g350_live",
+    privacy_switch_entity: "switch.g350_privacy_mode",
+    privacy_entity: "input_boolean.g350_monitoring",
+    privacy_status_entity: "binary_sensor.g350_live_view_blocked",
+    privacy_resume_delay_ms: 0
+  };
+  card._built = true;
+  Object.defineProperty(card, "isConnected", {value:true});
+  let paused = 0, restarted = 0;
+  card._refreshPrivacy = () => {};
+  card._pauseNativeVideo = () => paused++;
+  card._restartNativeVideo = () => restarted++;
+  const snapshot = (native,legacy,sensed) => ({
+    states: {
+      "switch.g350_privacy_mode": {state:native},
+      "input_boolean.g350_monitoring": {state:legacy},
+      "binary_sensor.g350_live_view_blocked": {state:sensed}
+    },
+    callService: async (domain, command, args) => commands.push([domain,command,args.entity_id])
+  });
+  // Even if the older helper is out of sync, the native switch is authoritative.
+  card.hass = snapshot("off","off","off");
+  assert.equal(card._privacyMode,"on");
+  card.hass = snapshot("on","off","on");
+  assert.equal(card._privacyMode,"off");
+  await card._togglePrivacy();
+  assert.deepEqual(commands,[["switch","toggle","switch.g350_privacy_mode"]]);
+  card.hass = snapshot("off","off","off");
+  await new Promise(resolve => setTimeout(resolve,20));
+  assert.equal(card._privacyMode,"on");
+  assert.equal(restarted,2);
+  assert.equal(paused,2);
+  card._cancelVideoRestart();
+});
+
+test("native Matter privacy works without any Aqara helper", async () => {
+  const card = new Card();
+  card._config = {
+    native_camera_entity: "camera.g350_live",
+    privacy_switch_entity: "switch.g350_privacy_mode",
+    privacy_resume_delay_ms: 0
+  };
+  card._built = true;
+  Object.defineProperty(card, "isConnected", {value:true});
+  let pauses = 0, restarts = 0;
+  card._refreshPrivacy = () => {};
+  card._pauseNativeVideo = () => pauses++;
+  card._restartNativeVideo = () => restarts++;
+  const state = (value) => ({
+    states: {"switch.g350_privacy_mode":{state:value}},
+    callService: async()=>{}
+  });
+  card.hass = state("off");
+  card.hass = state("on");
+  assert.equal(pauses,1);
+  card.hass = state("off");
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(restarts,2);
+  card._cancelVideoRestart();
+});

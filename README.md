@@ -56,6 +56,53 @@ privacy. A change made directly in the camera manufacturer app will not
 automatically update a standalone helper. Other camera models can omit
 `privacy_entity`, leaving video unchanged by vendor scenes.
 
+### Native Matter privacy switch (experimental)
+
+With the local Aqara G350, writing Matter AV Stream Management cluster 1361
+attributes **19** (soft recording) and **20** (soft livestream) to `true`
+retracted the lens; writing both `false` exposed it again. Both Matter
+responses had status 0, and `HardPrivacyModeOn` followed the change. This
+two-way behavior has been verified on **one G350** and is not assumed for
+other brands.
+
+The experimental integration now provides an optional HA **Privacy mode**
+`switch` entity (ON = privacy active, OFF = monitoring allowed), created
+only if both soft attributes are reported as supported booleans. The switch
+writes *only* attributes 19 and 20, never read-only hardware attribute 21.
+It reads back its state through the same shared Matter coordinator used by
+the privacy sensors, polling every five seconds. If either write is rejected,
+HA reports an error; the user should inspect the sensors because an individual
+write might already have succeeded. Other cameras may suppress streams but
+not physically move their shutter.
+
+To test, update the experimental branch and restart Home Assistant, then
+find `switch.*_privacy_mode` in the device's entity list. **Before changing
+your dashboard, test ON and OFF from HA Developer Tools → Actions.** Keep the
+old Aqara scene automation until both directions are verified.
+
+Once this works, point your card to the real native switch entity:
+
+```yaml
+type: custom:matter-camera-ptz-card
+title: Aqara G350
+native_camera_entity: camera.YOUR_MATTER_CAMERA_LIVE
+ptz_entity: button.YOUR_PTZ_BUTTON
+privacy_switch_entity: switch.YOUR_MATTER_PRIVACY_MODE
+privacy_status_entity: binary_sensor.YOUR_MATTER_LIVE_VIEW_BLOCKED
+privacy_resume_delay_ms: 1000
+```
+
+**Do not also set** `privacy_entity` unless you specifically want a
+legacy fallback: `privacy_switch_entity` takes precedence, so the card
+will not trigger the old scene helper once a native switch is configured.
+The sensor remains read-only. The card automatically hides video when
+privacy is ON and starts a fresh WebRTC session when privacy goes OFF.
+Only delete the helper and vendor scenes after testing privacy ON, OFF,
+video recovery, and several repeated toggles.
+
+See [native example card](examples/webrtc_ptz_card.yaml) and
+[legacy scene example](examples/legacy_vendor_scenes_card.yaml).
+
 ### Controlled local write test: soft privacy (Aqara G350)
 
 **Hardware privacy is read-only in Matter.** To discover whether the G350's
@@ -136,18 +183,19 @@ the existing Aqara privacy scene. After 10–15 seconds, Matter reporting showed
 | `soft_recording_mode_enabled` | false | **true** |
 | Computed `live_view_blocked` | false | **true** |
 
-This confirms **read-only detection** of the G350's physical privacy state
-in this tested setup. It does **not** establish that Matter can actuate the
-mechanical lens cover. Matter's `HardPrivacyModeOn` is a reported attribute,
-not a universal writable command to retract a lens. Aqara scenes remain
-optional external actions for physical actuation until verified otherwise.
+These read-only measurements were followed by a **successful
+two-way local actuation test**: setting both writable soft privacy attributes
+to true retracted the physical lens; setting both to false exposed it.
+`HardPrivacyModeOn` is still **read-only** and was never directly written.
+This behavior is confirmed for the tested Aqara G350 only, not for other
+camera manufacturers.
 
-For the G350, we recommend specifying the real `Live view blocked` binary
-sensor entity ID as `privacy_status_entity` in the card, retaining
-`privacy_entity` only if an input_boolean is currently used to trigger
-manufacturer-specific scenes. The sensor is the *observed* state; the helper is
-the *requested* state. Do not synchronize the helper back from the sensor
-without guarding against automation loops.
+For the G350, the real `Live view blocked` binary sensor may be supplied
+as `privacy_status_entity` to the card. The native `privacy_switch_entity`
+controls the camera through Matter, while `privacy_entity` is optional for
+older scene-based setups. Avoid using two independent controllers at once.
+The sensor reports actual state, the switch reports its state from Matter;
+do not synchronize a helper back from a sensor without loop protection.
 
 For cameras other than G350, hardware-to-Matter privacy mapping remains
 unverified. Sensor availability and polling delay must be considered.
