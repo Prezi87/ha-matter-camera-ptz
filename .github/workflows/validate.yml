@@ -1,9 +1,16 @@
-name: Validate Python and YAML
+name: Validate
+
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   syntax:
+    name: Syntax and card tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,3 +37,20 @@ jobs:
               yaml.safe_load(p.read_text())
           print('Syntax OK')
           PY
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # Custom repository: topics require GitHub repository admin access.
+          # Remove this ignore after setting topics in GitHub's About sidebar.
+          ignore: topics
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master

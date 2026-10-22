@@ -1,0 +1,54 @@
+name: Publish validated release
+
+on:
+  workflow_run:
+    workflows: ["Validate"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Only trusted, validated main pushes can publish a release.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Publish once for validated main revision
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+          if [ "$CURRENT_MAIN" != "$VALIDATED_SHA" ]; then
+            echo "Main changed after this validation; skip outdated revision"
+            exit 0
+          fi
+          VERSION=$(python - <<'PY'
+          import json,re
+          version=json.load(open('custom_components/matter_camera_ptz/manifest.json'))['version']
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
+              raise SystemExit('A stable SemVer manifest version is required')
+          print(version)
+          PY
+          )
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists; nothing to publish"
+            exit 0
+          fi
+          NOTES="docs/releases/$TAG.md"
+          test -f "$NOTES"
+          gh release create "$TAG" --target "$VALIDATED_SHA" \
+            --title "Matter Camera PTZ $TAG" --notes-file "$NOTES" --latest
+          echo "Published $TAG"
