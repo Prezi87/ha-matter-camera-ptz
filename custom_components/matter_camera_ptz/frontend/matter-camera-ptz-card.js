@@ -46,9 +46,10 @@ class MatterCameraPTZCard extends HTMLElement {
   }
   set hass(hass) {
     this._hass = hass;
-    if (this._player) this._player.hass = hass;
     this._refreshPrivacy();
     this._syncPrivacyVideo();
+    // Tear down a privacy-blocked player before updating its HA state.
+    if (this._player) this._player.hass = hass;
   }
   getCardSize() { return 7; }
   getGridOptions() { return {columns:12,min_columns:6,rows:8}; }
