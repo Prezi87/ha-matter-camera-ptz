@@ -125,3 +125,37 @@ test("unknown Matter privacy is never treated as affirmative privacy-OFF", () =>
   assert.equal(card._syncPrivacyVideo(), true);
   assert.equal(card._privacyMode, "off");
 });
+
+
+test("last known privacy ON persists across Matter sensor outage until explicit OFF", async () => {
+  const card = new Card();
+  card._config = {
+    native_camera_entity: "camera.g350_live",
+    privacy_entity: "input_boolean.g350_monitoring",
+    privacy_status_entity: "binary_sensor.g350_live_view_blocked",
+    privacy_resume_delay_ms: 0
+  };
+  card._built = true;
+  Object.defineProperty(card, "isConnected", { value: true });
+  let paused = 0, restarted = 0;
+  card._refreshPrivacy = () => {};
+  card._pauseNativeVideo = () => paused++;
+  card._restartNativeVideo = () => restarted++;
+  const state = (sensor) => ({
+    states: {
+      "input_boolean.g350_monitoring": {state: "on"},
+      "binary_sensor.g350_live_view_blocked": {state: sensor}
+    }
+  });
+  card.hass = state("off");
+  assert.equal(restarted, 1);
+  card.hass = state("on");
+  assert.equal(paused, 1);
+  card.hass = state("unavailable");
+  assert.equal(restarted, 1);
+  assert.equal(card._privacyMode, "off");
+  card.hass = state("off");
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(restarted, 2);
+  card._cancelVideoRestart();
+});
