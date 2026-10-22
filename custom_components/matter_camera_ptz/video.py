@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -48,11 +49,21 @@ class MatterVideoSession:
         self._start_sent = False
         self._closing = False
         self._queued_candidates: list[dict[str, Any]] = []
+        self._timing_started: float | None = None
+        self._first_answer_seen = False
+        self._first_camera_ice_seen = False
+        self._first_browser_ice_seen = False
 
     async def start(self, offer_sdp: str) -> None:
         """Ask camera to create live view with SDP offer from Home Assistant."""
+        self._timing_started = monotonic()
+        _LOGGER.info("Matter video timing: start (session=%s)", self._key[:8])
         self._ws = await async_get_clientsession(self._hass).ws_connect(
             self._url, heartbeat=20, timeout=20
+        )
+        _LOGGER.info(
+            "Matter video timing: Matter Server WebSocket ready at +%.3fs (session=%s)",
+            self._elapsed(), self._key[:8],
         )
         self._reader_task = asyncio.create_task(self._read_messages())
         args = {
@@ -64,6 +75,11 @@ class MatterVideoSession:
         }
         try:
             result = await self._call("camera_start_stream", args, timeout=45)
+            _LOGGER.info(
+                "Matter video timing: camera_start_stream completed at +%.3fs (session=%s, mode=%s)",
+                self._elapsed(), self._key[:8],
+                result.get("mode") if isinstance(result, dict) else "unknown",
+            )
             self._start_sent = True
             _LOGGER.debug(
                 "Matter WebRTC start mode: %s",
@@ -74,11 +90,25 @@ class MatterVideoSession:
                 self._queued_candidates = []
                 await self._submit_candidates(candidates)
         except Exception:
+            _LOGGER.warning(
+                "Matter video timing: camera_start_stream failed at +%.3fs (session=%s)",
+                self._elapsed(), self._key[:8],
+            )
             await self.close()
             raise
 
+    def _elapsed(self) -> float:
+        """Elapsed time from the start of this native WebRTC attempt."""
+        return max(0.0, monotonic() - self._timing_started) if self._timing_started else 0.0
+
     async def add_candidate(self, candidate: RTCIceCandidateInit) -> None:
         """Forward browser ICE candidates to the Matter WebRTC session."""
+        if not self._first_browser_ice_seen:
+            self._first_browser_ice_seen = True
+            _LOGGER.info(
+                "Matter video timing: first browser ICE at +%.3fs (session=%s, waiting_for_stream=%s)",
+                self._elapsed(), self._key[:8], not self._start_sent,
+            )
         item = {
             "candidate": candidate.candidate,
             "sdpMid": candidate.sdp_mid,
@@ -175,6 +205,18 @@ class MatterVideoSession:
     def _handle_callback(self, event: dict[str, Any]) -> None:
         kind = event.get("event_type")
         data = event.get("data") or {}
+        if kind == "answer" and not self._first_answer_seen:
+            self._first_answer_seen = True
+            _LOGGER.info(
+                "Matter video timing: camera SDP answer at +%.3fs (session=%s)",
+                self._elapsed(), self._key[:8],
+            )
+        elif kind == "ice_candidates" and not self._first_camera_ice_seen:
+            self._first_camera_ice_seen = True
+            _LOGGER.info(
+                "Matter video timing: first camera ICE candidates at +%.3fs (session=%s)",
+                self._elapsed(), self._key[:8],
+            )
         if kind == "answer":
             if sdp := data.get("sdp"):
                 self._send_message(WebRTCAnswer(sdp))
@@ -199,6 +241,10 @@ class MatterVideoSession:
         if self._closing:
             return
         self._closing = True
+        _LOGGER.info(
+            "Matter video timing: stream teardown at +%.3fs (session=%s)",
+            self._elapsed(), self._key[:8],
+        )
         if self._ws is not None and not self._ws.closed and self._start_sent:
             try:
                 await self._call(
