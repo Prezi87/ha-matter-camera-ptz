@@ -46,8 +46,8 @@ class MatterCameraPTZCard extends HTMLElement {
   }
   set hass(hass) {
     this._hass = hass;
-    this._refreshPrivacy();
     this._syncPrivacyVideo();
+    this._refreshPrivacy();
     // Tear down a privacy-blocked player before updating its HA state.
     if (this._player) this._player.hass = hass;
   }
@@ -301,14 +301,15 @@ class MatterCameraPTZCard extends HTMLElement {
     const state=id&&this._hass?.states?.[id];
     const sensedId=this._config?.privacy_status_entity;
     const sensed=sensedId&&this._hass?.states?.[sensedId]?.state;
-    const modeOff=state?.state==="off"||sensed==="on";
+    const effectiveSensed=(sensed==="on"||sensed==="off") ? sensed : this._lastReportedPrivacyState;
+    const modeOff=state?.state==="off"||effectiveSensed==="on";
     // The button triggers only the user's HA helper; Matter reporting is
     // strictly read-only (particularly for physical privacy switches).
     btn.disabled=!(state && state.state!=="unavailable" && state.state!=="unknown");
     btn.classList.toggle("on",!modeOff);
     btn.classList.toggle("off",modeOff);
     btn.querySelector("ha-icon").setAttribute("icon",modeOff?"mdi:eye-off":"mdi:cctv");
-    btn.title=sensed==="on"?"Matter reports privacy active":
+    btn.title=effectiveSensed==="on"?"Matter reports privacy active (or last known active)":
       !id?"No privacy control configured (Matter state is read-only)":
       !state?"Helper not found":modeOff?"Privacy on":"Monitoring on";
   }
