@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import voluptuous as vol
 
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -35,6 +38,13 @@ MOVE_SCHEMA = vol.Schema(
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register custom action once for the whole integration."""
     hass.data.setdefault(DOMAIN, {})
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(
+            "/matter_camera_ptz/matter-camera-ptz-card.js",
+            str(Path(__file__).parent / "frontend" / "matter-camera-ptz-card.js"),
+            False,
+        )]
+    )
 
     async def handle_move(call: ServiceCall) -> None:
         entity = er.async_get(hass).async_get(call.data["entity_id"])

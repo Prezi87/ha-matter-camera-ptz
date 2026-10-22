@@ -1,0 +1,18 @@
+# Matter Camera PTZ with WebRTC Camera (AlexxIT).
+# A working go2rtc stream named g350 is required for the video below.
+# Select ANY PTZ button entity created for this camera by Matter Camera PTZ.
+type: custom:matter-camera-ptz-card
+title: Aqara G350
+ptz_entity: button.REPLACE_WITH_ACTUAL_PTZ_BUTTON
+stream: g350
+privacy_entity: input_boolean.g350_monitoring
+button_size: 62
+gap: 8
+pan_per_second: 30
+pan_max: 90
+tilt_per_second: 12
+tilt_max: 24
+zoom_delta: 5
+zoom_repeat_ms: 3500
+muted: true
+video_controls: false

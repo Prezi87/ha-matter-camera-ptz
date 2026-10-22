@@ -1,6 +1,6 @@
 # Matter Camera PTZ for Home Assistant
 
-**Experimental community integration (v0.1.0-beta.1). Not production ready.**
+**Experimental community integration (v0.2.0-beta.1). Not production ready.**
 
 Control Pan / Tilt / Zoom on compatible Matter cameras through the local
 [Open Home Foundation Matter.js Server](https://github.com/matter-js/matterjs-server)
@@ -37,6 +37,60 @@ This project is unaffiliated with Aqara, Home Assistant, or Matter.js.
 6. Select the detected camera endpoint and configure step sizes. The integration should create six button entities.
 
 Alternatively, copy the custom_components/matter_camera_ptz folder into your HA config/custom_components folder and restart HA.
+
+## One card: WebRTC video + PTZ joystick (experimental)
+
+**New in 0.2.0-beta.1:** A bundled Lovelace card displays a WebRTC live view above a compact PTZ joystick.
+The backend still handles all PTZ via the local Matter.js Server.
+
+**Video dependency:** Install AlexxIT WebRTC Camera separately from HACS.
+WebRTC Camera uses go2rtc and is not bundled in this repository.
+Verify first that an ordinary custom:webrtc-camera dashboard card already plays your stream.
+
+### Installation
+
+1. Update Matter Camera PTZ through HACS and restart Home Assistant.
+2. Ensure AlexxIT WebRTC Camera is installed and working.
+3. In Settings → Dashboards → ⋮ → Resources, add this JavaScript module:
+   /matter_camera_ptz/matter-camera-ptz-card.js?v=0.2.0-beta.1
+4. Refresh the browser, then add one Manual card using the sample below.
+
+```yaml
+type: custom:matter-camera-ptz-card
+title: Aqara G350
+ptz_entity: button.REPLACE_WITH_ANY_PTZ_BUTTON_FOR_THIS_CAMERA
+stream: g350
+privacy_entity: input_boolean.g350_monitoring
+button_size: 62
+gap: 8
+pan_per_second: 30
+pan_max: 90
+tilt_per_second: 12
+tilt_max: 24
+zoom_delta: 5
+zoom_repeat_ms: 3500
+muted: true
+video_controls: false
+```
+
+Set stream to a go2rtc stream name, or replace it with camera_entity: camera.your_camera.
+The privacy_entity field is optional; if omitted, the center button is disabled.
+The privacy helper only stores the requested state. An automation must map it to Aqara Scene Sync.
+The card does not verify the physical position of the camera's privacy shutter.
+
+- Left/right and up/down: one move on release, proportional to how long the button was held.
+- Zoom: immediate move on press, then repeat while held, subject to backend cooldown.
+- Keyboard, touch, and mouse actions are supported.
+- The video display uses Home Assistant card helpers to embed custom:webrtc-camera.
+- For YAML-mode dashboards, add the module URL to the Lovelace resources configuration instead.
+
+**Security:** Prefer a go2rtc stream name instead of embedding RTSP credentials in the dashboard.
+Restrict go2rtc's unauthenticated management port 1984 to trusted networks.
+
+See also [the complete example](examples/webrtc_ptz_card.yaml).
+
+**Known limitation:** This frontend card has not yet been tested in a live HA dashboard. The backend integration has been tested by an Aqara G350 user.
+Report browser console errors with private IPs, passwords and tokens removed.
 
 ## Service / action for custom distance
 
@@ -75,7 +129,7 @@ last requested setting, **not** the physical privacy state of the camera.
 - This is a **beta prototype**. Config flow, entity setup, options, and custom action require real HA testing.
 - Video preview is not provided; retain your existing video integration.
 - Other camera models have not been verified. Discovery relies on Matter PTZ cluster 1362.
-- No built-in joystick card, Home Assistant Brands entry, or formal HACS store approval yet.
+- A bundled experimental joystick card is included, but has not yet been live-tested; no Home Assistant Brands entry or formal HACS store approval yet.
 - CI checks Python/JSON/YAML syntax only; passing is **not** proof of runtime compatibility.
 
 If you can test with a compatible camera, please open an issue with model, firmware,
