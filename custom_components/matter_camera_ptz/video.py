@@ -55,7 +55,6 @@ class MatterVideoSession:
             self._url, heartbeat=20, timeout=20
         )
         self._reader_task = asyncio.create_task(self._read_messages())
-        self._start_sent = True
         args = {
             "node_id": self._node_id,
             "endpoint_id": self._endpoint_id,
@@ -65,6 +64,7 @@ class MatterVideoSession:
         }
         try:
             result = await self._call("camera_start_stream", args, timeout=45)
+            self._start_sent = True
             _LOGGER.debug(
                 "Matter WebRTC start mode: %s",
                 result.get("mode") if isinstance(result, dict) else result,
