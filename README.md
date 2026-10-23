@@ -20,7 +20,7 @@ affiliated with Aqara, Home Assistant, HACS or the Matter.js maintainers.
 The Aqara G350 has also been tested behind an **OpenWrt firewall blocking camera WAN**:
 video, PTZ, privacy sensor state, and native privacy switch continue to work
 locally. When WAN was blocked, the first live image took approximately **7 seconds**;
-the root cause is unknown and tracked in [issue #3](https://github.com/Prezi87/ha-matter-camera-ptz/issues/3).
+the behavior appears linked to G350's WAN-dependent startup, and is documented in [issue #3](https://github.com/Prezi87/ha-matter-camera-ptz/issues/3).
 
 ## Requirements
 
@@ -40,7 +40,7 @@ the root cause is unknown and tracked in [issue #3](https://github.com/Prezi87/h
 
 1. Open **HACS → Custom repositories**.
 2. Add `https://github.com/Prezi87/ha-matter-camera-ptz`, category **Integration**.
-3. Download the latest `v0.3.0` release of **Matter Camera PTZ** and restart Home Assistant.
+3. Download the latest `v0.3.1` release of **Matter Camera PTZ** and restart Home Assistant.
 4. Open **Settings → Devices & services → Add integration → Matter Camera PTZ**.
 5. Provide Matter Server WebSocket URL. For HA and Matter Server using Docker
    **host networking on the same host**, use `ws://127.0.0.1:5580/ws`.
@@ -85,7 +85,7 @@ just because their backend files were installed. Register **one** JavaScript
 module under **Settings → Dashboards → Resources**:
 
 ```text
-/matter_camera_ptz/matter-camera-ptz-card.js?v=0.3.0
+/matter_camera_ptz/matter-camera-ptz-card.js?v=0.3.1
 ```
 
 Resource type: **JavaScript module**. If an older version is already listed,
@@ -168,11 +168,11 @@ local Matter connectivity. Vendor cloud scenes might no longer function.
 The Matter Server WebSocket and any HA credentials should stay on a trusted
 network. **Never post fabric files, tokens, passwords, SDP or ICE candidate IPs.**
 
-### Experimental WebRTC lifecycle diagnostic (not in v0.3.0)
+### Experimental WebRTC lifecycle diagnostic (not in v0.3.1)
 
 Editing a Lovelace dashboard may call `setConfig()` again on an existing card
 or remove and recreate the entire card. Both cases can terminate the native
-WebRTC session. In v0.3.0 the bundled joystick card unnecessarily rebuilt
+WebRTC session. In v0.3.1 the bundled joystick card unnecessarily rebuilt
 its nested live view on **every** repeated `setConfig` call.
 
 On the `fix/webrtc-card-lifecycle` test branch, the outer card now
@@ -202,7 +202,7 @@ Open the browser's developer console, enter/exit dashboard edit mode, and
 look for `[Matter Camera PTZ #N]` messages:
 
 - `setConfig: unchanged` or `update controls in place`: same card, old
-  v0.3.0 implementation would have restarted video.
+  v0.3.1 implementation would have restarted video.
 - `disconnected` → `connected (built=true)` with the **same # number**:
   the test card reused its DOM; HA's inner WebRTC player may still reconnect.
 - `disconnected` followed by a new `connected` with **a new # number**:
@@ -212,9 +212,9 @@ look for `[Matter Camera PTZ #N]` messages:
   card itself.
 
 INFO-level `Matter video timing:` backend messages already exist in
-v0.3.0 and can further separate SDP/ICE preparation from first-frame latency.
+v0.3.1 and can further separate SDP/ICE preparation from first-frame latency.
 Never share raw SDP, ICE IPs, tokens, or fabric data. Restore the published
-v0.3.0 frontend module if a test branch misbehaves.
+v0.3.1 frontend module if a test branch misbehaves.
 
 ## Diagnostics and known limitations
 
