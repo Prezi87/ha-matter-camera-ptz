@@ -39,6 +39,7 @@ class MatterCameraPTZCard extends HTMLElement {
     this._token = 0;
     this._videoRestartTimer = null;
     this._privacyMode = undefined;
+    this._resumeOnReconnect = false;
   }
 
   // HA can call setConfig again while entering dashboard edit mode, even
@@ -101,16 +102,39 @@ class MatterCameraPTZCard extends HTMLElement {
 
   connectedCallback() {
     this._debug("connected (built="+Boolean(this._built)+")");
-    if (this._config && !this._built) this._render();
+    if (!this._config) return;
+    if (!this._built) {
+      this._render();
+      return;
+    }
+    // Home Assistant reconnects its own ha-web-rtc-player when the existing
+    // DOM is reattached. Do not delete and recreate picture-entity here.
+    this._debug("reconnected: preserved embedded player DOM");
+    const wasBlocked = this._privacyMode === "off";
+    this._syncPrivacyVideo();
+    this._refreshPrivacy();
+    if (this._resumeOnReconnect) {
+      this._resumeOnReconnect = false;
+      if (this._privacyMode !== "off" && !this._videoRestartTimer)
+        this._restartNativeVideo();
+    } else if (!wasBlocked && !this._player && !this._videoRestartTimer &&
+               this._config.native_camera_entity && this._privacyMode !== "off") {
+      // Initial asynchronous load was interrupted before the player existed.
+      this._debug("reconnected: retry interrupted embedded player load");
+      this._restartNativeVideo();
+    }
   }
   disconnectedCallback() {
-    this._debug("disconnected (browser/HA may close WebRTC)");
+    this._debug("disconnected (HA WebRTC player manages its own cleanup)");
     this._stopAll();
-    this._cancelVideoRestart();
+    if (this._videoRestartTimer !== null) {
+      this._resumeOnReconnect = true;
+      this._cancelVideoRestart();
+    }
+    // Invalidate outstanding card helper loads, but preserve the nested player,
+    // privacy status and shadow DOM. HA's ha-web-rtc-player already executes
+    // its own _cleanUp() on detach and reconnects when reattached.
     this._token++;
-    this._player = null;
-    this._privacyMode = undefined;
-    this._built = false;
   }
 
   _stopAll() {
@@ -125,6 +149,7 @@ class MatterCameraPTZCard extends HTMLElement {
     this._cancelVideoRestart();
     this._privacyMode = undefined;
     this._lastReportedPrivacyState = undefined;
+    this._resumeOnReconnect = false;
     const token=++this._token;
     const size=this._value("button_size",62,44,82);
     const gap=this._value("gap",8,4,18);
