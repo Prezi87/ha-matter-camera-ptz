@@ -225,3 +225,54 @@ test("native Matter privacy works without any Aqara helper", async () => {
   assert.equal(restarts,2);
   card._cancelVideoRestart();
 });
+
+
+test("repeated setConfig on connected card preserves the active WebRTC player", () => {
+  const card = new Card();
+  const properties = {};
+  const inner = {style: {setProperty: (name,value) => properties[name]=value}};
+  const title = {textContent: ""};
+  card.shadowRoot.querySelector = (selector) =>
+    selector==="ha-card" ? inner : selector===".title" ? title : null;
+  Object.defineProperty(card, "isConnected", {value: true});
+  card._built = true;
+  const original = {
+    title:"Aqara G350",
+    native_camera_entity:"camera.g350",
+    ptz_entity:"button.g350_pan_left",
+    privacy_switch_entity:"switch.g350_privacy_mode",
+    button_size:62,
+  };
+  card._config = {...original};
+  let renders = 0;
+  const originalPlayer = {};
+  card._player = originalPlayer;
+  card._render = () => renders++;
+  card.setConfig({...original});
+  assert.equal(renders,0);
+  assert.equal(card._player,originalPlayer);
+
+  // Edit-mode changes to visual/control settings also must not restart video.
+  card.setConfig({...original, title:"Salon", button_size:50, pan_per_second:35});
+  assert.equal(renders,0);
+  assert.equal(card._player,originalPlayer);
+  assert.equal(properties["--ptz-size"],"50px");
+  assert.equal(title.textContent,"Salon");
+
+  // A different camera source must still recreate the player.
+  card.setConfig({...original, native_camera_entity:"camera.other"});
+  assert.equal(renders,1);
+});
+
+test("card logs re-render lifecycle only when explicitly opted in", () => {
+  const card = new Card();
+  Object.defineProperty(card, "isConnected", {value:true});
+  card._built = true;
+  card._config = {
+    native_camera_entity: "camera.g350",
+    ptz_entity: "button.g350",
+    debug: false
+  };
+  card._render = () => { throw Error("identical config must not rerender"); };
+  card.setConfig({...card._config});
+});
