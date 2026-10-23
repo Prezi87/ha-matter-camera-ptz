@@ -130,6 +130,42 @@ available when a camera does not support native privacy control:
 An external WebRTC Camera/go2rtc stream can also be used as fallback by
 setting `stream` or `camera_entity` instead of `native_camera_entity`.
 
+### Fast RTSP video with Matter PTZ and privacy (experimental)
+
+Aqara G350 can expose local RTSP on port 8554. In HA, first create a
+**Generic Camera** pointing at the G350 RTSP 1080p channel (`/ch2`),
+using the credentials configured in Aqara. Do **not** commit credentials to
+GitHub or paste them into the Lovelace card.
+
+The test card supports `rtsp_camera_entity` to display an existing Generic
+Camera through HA's built-in `picture-entity`, while the PTZ buttons and
+privacy switch still use Matter:
+
+```yaml
+type: custom:matter-camera-ptz-card
+title: Aqara G350
+rtsp_camera_entity: camera.REPLACE_WITH_YOUR_GENERIC_CAMERA
+ptz_entity: button.REPLACE_WITH_MATTER_PAN_LEFT
+privacy_switch_entity: switch.REPLACE_WITH_MATTER_PRIVACY_MODE
+privacy_status_entity: binary_sensor.REPLACE_WITH_LIVE_VIEW_BLOCKED
+button_size: 62
+gap: 8
+debug: true
+```
+
+When the Matter privacy switch or sensor reports privacy ON, the custom
+card overlays the entire player with an opaque message and **does not remove
+the RTSP player**. The camera can resume its frames automatically as observed
+on the G350. This is a **UI visual mask** of the last stale frame, not a
+network firewall or a guarantee that media bytes are no longer received:
+the camera's hardware and firmware remain responsible for privacy enforcement.
+
+Note that `rtsp_camera_entity` is **only in the experimental
+`feature/rtsp-privacy-overlay` branch**, not published v0.3.0.
+Generic Camera can use an HA stream backend; actual first-frame latency
+depends on that backend. Native `native_camera_entity` remains available
+for standard Matter camera WebRTC.
+
 ## PTZ action
 
 ```yaml
