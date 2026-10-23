@@ -23,6 +23,13 @@ from webrtc_models import RTCIceCandidateInit
 
 _LOGGER = logging.getLogger(__name__)
 
+# HA frontend currently starts setRemoteDescription() asynchronously on
+# WebRTCAnswer; it does not await completion before handling a later event.
+# Remote candidates need to wait until the browser has time to apply the SDP.
+# There is no frontend "remote SDP applied" acknowledgment in this API.
+_REMOTE_SDP_GRACE_SECONDS = 0.35
+_MAX_QUEUED_REMOTE_ICE = 128
+
 
 class MatterVideoSession:
     """One active browser video session per Matter Server WebSocket."""
@@ -53,6 +60,10 @@ class MatterVideoSession:
         self._first_answer_seen = False
         self._first_camera_ice_seen = False
         self._first_browser_ice_seen = False
+        self._remote_answer_sent = False
+        self._remote_ice_ready = False
+        self._queued_remote_ice: list[dict[str, Any]] = []
+        self._remote_ice_task: asyncio.Task | None = None
 
     async def start(self, offer_sdp: str) -> None:
         """Ask camera to create live view with SDP offer from Home Assistant."""
@@ -203,44 +214,108 @@ class MatterVideoSession:
                 )
 
     def _handle_callback(self, event: dict[str, Any]) -> None:
+        """Forward Matter's SDP before any camera ICE candidates.
+
+        Home Assistant's frontend does not await setRemoteDescription() before
+        it processes another signaling callback. Forwarding ICE immediately
+        can raise InvalidStateError (remoteDescription is null). Buffer the
+        candidates until after an answer and allow a short setup grace.
+        """
+        if self._closing:
+            return
         kind = event.get("event_type")
         data = event.get("data") or {}
-        if kind == "answer" and not self._first_answer_seen:
-            self._first_answer_seen = True
-            _LOGGER.info(
-                "Matter video timing: camera SDP answer at +%.3fs (session=%s)",
-                self._elapsed(), self._key[:8],
-            )
-        elif kind == "ice_candidates" and not self._first_camera_ice_seen:
-            self._first_camera_ice_seen = True
-            _LOGGER.info(
-                "Matter video timing: first camera ICE candidates at +%.3fs (session=%s)",
-                self._elapsed(), self._key[:8],
-            )
+
         if kind == "answer":
-            if sdp := data.get("sdp"):
-                self._send_message(WebRTCAnswer(sdp))
-        elif kind == "ice_candidates":
-            for candidate in data.get("ice_candidates") or []:
-                self._send_message(
-                    WebRTCCandidate(
-                        RTCIceCandidateInit(
-                            candidate["candidate"],
-                            sdp_mid=candidate.get("sdpMid"),
-                            sdp_m_line_index=candidate.get("sdpMLineIndex"),
-                        )
-                    )
+            if not (sdp := data.get("sdp")):
+                _LOGGER.warning("Matter WebRTC answer event omitted SDP")
+                return
+            if not self._first_answer_seen:
+                self._first_answer_seen = True
+                _LOGGER.info(
+                    "Matter video timing: camera SDP answer at +%.3fs (session=%s)",
+                    self._elapsed(), self._key[:8],
                 )
-        elif kind == "end":
+            self._send_message(WebRTCAnswer(sdp))
+            if not self._remote_answer_sent:
+                self._remote_answer_sent = True
+                self._remote_ice_task = asyncio.create_task(
+                    self._release_remote_ice_after_answer()
+                )
+            return
+
+        if kind == "ice_candidates":
+            if not self._first_camera_ice_seen:
+                self._first_camera_ice_seen = True
+                _LOGGER.info(
+                    "Matter video timing: first camera ICE candidates at +%.3fs (session=%s)",
+                    self._elapsed(), self._key[:8],
+                )
+            for candidate in data.get("ice_candidates") or []:
+                if not isinstance(candidate, dict) or not candidate.get("candidate"):
+                    continue
+                if self._remote_ice_ready:
+                    self._forward_remote_candidate(candidate)
+                elif len(self._queued_remote_ice) < _MAX_QUEUED_REMOTE_ICE:
+                    self._queued_remote_ice.append(candidate)
+                else:
+                    _LOGGER.warning(
+                        "Matter WebRTC dropped excess queued remote ICE candidates"
+                    )
+            return
+
+        if kind == "end":
             self._send_message(
                 WebRTCError("matter_webrtc_ended", "Camera ended stream")
             )
+
+    def _forward_remote_candidate(self, candidate: dict[str, Any]) -> None:
+        """Forward one camera ICE candidate without logging sensitive values."""
+        if self._closing:
+            return
+        self._send_message(
+            WebRTCCandidate(
+                RTCIceCandidateInit(
+                    candidate["candidate"],
+                    sdp_mid=candidate.get("sdpMid"),
+                    sdp_m_line_index=candidate.get("sdpMLineIndex"),
+                )
+            )
+        )
+
+    async def _release_remote_ice_after_answer(self) -> None:
+        """Give the HA browser time to apply its SDP answer before trickle ICE."""
+        try:
+            await asyncio.sleep(_REMOTE_SDP_GRACE_SECONDS)
+            if self._closing:
+                return
+            self._remote_ice_ready = True
+            buffered = self._queued_remote_ice
+            self._queued_remote_ice = []
+            for candidate in buffered:
+                self._forward_remote_candidate(candidate)
+            _LOGGER.info(
+                "Matter video timing: remote ICE forwarding enabled at +%.3fs "
+                "(session=%s, buffered=%d)",
+                self._elapsed(), self._key[:8], len(buffered),
+            )
+        except asyncio.CancelledError:
+            raise
+
 
     async def close(self) -> None:
         """Stop session on camera and close the session-owning socket."""
         if self._closing:
             return
         self._closing = True
+        if self._remote_ice_task is not None:
+            self._remote_ice_task.cancel()
+            try:
+                await self._remote_ice_task
+            except asyncio.CancelledError:
+                pass
+            self._remote_ice_task = None
+        self._queued_remote_ice.clear()
         _LOGGER.info(
             "Matter video timing: stream teardown at +%.3fs (session=%s)",
             self._elapsed(), self._key[:8],
