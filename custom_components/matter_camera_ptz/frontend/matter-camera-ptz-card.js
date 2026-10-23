@@ -38,6 +38,8 @@ class MatterCameraPTZCard extends HTMLElement {
     this._timers = new Map();
     this._token = 0;
     this._videoRestartTimer = null;
+    this._rtspUnmaskTimer = null;
+    this._rtspUnmaskAt = 0;
     this._privacyMode = undefined;
     this._resumeOnReconnect = false;
   }
@@ -110,6 +112,7 @@ class MatterCameraPTZCard extends HTMLElement {
     // Home Assistant reconnects its own ha-web-rtc-player when the existing
     // DOM is reattached. Do not delete and recreate picture-entity here.
     this._debug("reconnected: preserved embedded player DOM");
+    if (this._config.rtsp_camera_entity && this._rtspUnmaskAt > Date.now()) this._scheduleRtspUnmask();
     const wasBlocked = this._privacyMode === "off";
     this._syncPrivacyVideo();
     this._refreshPrivacy();
@@ -127,6 +130,7 @@ class MatterCameraPTZCard extends HTMLElement {
   disconnectedCallback() {
     this._debug("disconnected (HA WebRTC player manages its own cleanup)");
     this._stopAll();
+    if (this._rtspUnmaskTimer !== null) { clearTimeout(this._rtspUnmaskTimer); this._rtspUnmaskTimer = null; }
     if (this._videoRestartTimer !== null) {
       this._resumeOnReconnect = true;
       this._cancelVideoRestart();
@@ -150,6 +154,7 @@ class MatterCameraPTZCard extends HTMLElement {
     this._privacyMode = undefined;
     this._lastReportedPrivacyState = undefined;
     this._resumeOnReconnect = false;
+    this._clearRtspUnmask();
     const token=++this._token;
     const size=this._value("button_size",62,44,82);
     const gap=this._value("gap",8,4,18);
@@ -281,8 +286,15 @@ class MatterCameraPTZCard extends HTMLElement {
     const previous = this._privacyMode;
     this._privacyMode = state;
     if (this._config.rtsp_camera_entity) {
-      // Keep Generic Camera RTSP running beneath an opaque overlay.
-      // It resumes frames by itself; do not tear down and renegotiate video.
+      // Keep RTSP running beneath the mask while Generic Camera awaits fresh
+      // frames. Hide old frames for a configurable post-privacy grace period.
+      if (state === "off") {
+        this._clearRtspUnmask();
+      } else if (previous === "off") {
+        const delay = this._value("rtsp_resume_mask_ms", 5500, 0, 30000);
+        this._rtspUnmaskAt = Date.now() + delay;
+        this._scheduleRtspUnmask();
+      }
       this._applyRtspPrivacyMask();
       return true;
     }
@@ -302,6 +314,26 @@ class MatterCameraPTZCard extends HTMLElement {
     return true;
   }
 
+  _clearRtspUnmask() {
+    if (this._rtspUnmaskTimer !== null) clearTimeout(this._rtspUnmaskTimer);
+    this._rtspUnmaskTimer = null;
+    this._rtspUnmaskAt = 0;
+  }
+
+  _scheduleRtspUnmask() {
+    if (this._rtspUnmaskTimer !== null) clearTimeout(this._rtspUnmaskTimer);
+    this._rtspUnmaskTimer = null;
+    if (!this._rtspUnmaskAt || !this.isConnected) return;
+    const wait = Math.max(0, this._rtspUnmaskAt - Date.now());
+    this._rtspUnmaskTimer = setTimeout(() => {
+      this._rtspUnmaskTimer = null;
+      if (this._privacyMode === "on" && this.isConnected && Date.now() >= this._rtspUnmaskAt) {
+        this._rtspUnmaskAt = 0;
+        this._applyRtspPrivacyMask();
+      }
+    }, wait);
+  }
+
   _applyRtspPrivacyMask() {
     if (!this._config?.rtsp_camera_entity) return;
     const slot = this.shadowRoot.querySelector(".video");
@@ -317,8 +349,12 @@ class MatterCameraPTZCard extends HTMLElement {
       slot.appendChild(overlay);
     }
     // Overlay hides stale RTSP frames; browser may keep decoding beneath.
-    overlay.style.display = this._privacyMode === "off" ? "flex" : "none";
-    this._debug("RTSP privacy overlay: "+(this._privacyMode === "off" ? "shown" : "hidden"));
+    const blocked = this._privacyMode === "off" || this._rtspUnmaskAt > Date.now();
+    overlay.textContent = this._privacyMode === "off"
+      ? "Tryb prywatności — podgląd ukryty"
+      : blocked ? "Oczekiwanie na świeży obraz…" : "";
+    overlay.style.display = blocked ? "flex" : "none";
+    this._debug("RTSP privacy overlay: "+(blocked ? "shown" : "hidden"));
   }
 
   async _loadVideo(token) {
