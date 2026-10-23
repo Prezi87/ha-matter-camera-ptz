@@ -1,6 +1,6 @@
 /* Matter Camera PTZ Card -- WebRTC lifecycle diagnostics (v0.3.1 candidate) */
 let cardInstanceNumber = 0;
-const VIDEO_SOURCE_KEYS = ["native_camera_entity","camera_entity","stream","muted","video_controls"];
+const VIDEO_SOURCE_KEYS = ["native_camera_entity","rtsp_camera_entity","camera_entity","stream","muted","video_controls"];
 const directions = {
   left:["mdi:arrow-left-bold","Pan left"], right:["mdi:arrow-right-bold","Pan right"],
   up:["mdi:arrow-up-bold","Tilt up"], down:["mdi:arrow-down-bold","Tilt down"],
@@ -47,8 +47,8 @@ class MatterCameraPTZCard extends HTMLElement {
   // Avoid tearing down the active nested picture-entity/WebRTC player.
   setConfig(config) {
     if (!config.ptz_entity) throw new Error("Matter PTZ: ptz_entity is required");
-    if (!config.stream && !config.camera_entity && !config.native_camera_entity)
-      throw new Error("Matter PTZ: native_camera_entity, stream or camera_entity is required");
+    if (!config.stream && !config.camera_entity && !config.native_camera_entity && !config.rtsp_camera_entity)
+      throw new Error("Matter PTZ: native_camera_entity, rtsp_camera_entity, stream or camera_entity is required");
 
     const old = this._config;
     const changed = !old || JSON.stringify(old) !== JSON.stringify(config);
@@ -118,7 +118,7 @@ class MatterCameraPTZCard extends HTMLElement {
       if (this._privacyMode !== "off" && !this._videoRestartTimer)
         this._restartNativeVideo();
     } else if (!wasBlocked && !this._player && !this._videoRestartTimer &&
-               this._config.native_camera_entity && this._privacyMode !== "off") {
+               (this._config.native_camera_entity || this._config.rtsp_camera_entity) && this._privacyMode !== "off") {
       // Initial asynchronous load was interrupted before the player existed.
       this._debug("reconnected: retry interrupted embedded player load");
       this._restartNativeVideo();
@@ -247,7 +247,7 @@ class MatterCameraPTZCard extends HTMLElement {
     this._restartNativeVideo();
   }
   _syncPrivacyVideo() {
-    if (!this._built || !this._config?.native_camera_entity) return false;
+    if (!this._built || !(this._config?.native_camera_entity || this._config?.rtsp_camera_entity)) return false;
 
     // Optional native switch takes precedence over the old input_boolean.
     // A switch ON means privacy engaged; old helper OFF meant monitoring off.
@@ -273,10 +273,19 @@ class MatterCameraPTZCard extends HTMLElement {
 
     const privacyRequested = nativeControl ? control === "on" : control === "off";
     const state = (privacyRequested || reportedState === "on") ? "off" : "on";
-    if (this._privacyMode === state) return true;
+    if (this._privacyMode === state) {
+      if (this._config.rtsp_camera_entity) this._applyRtspPrivacyMask();
+      return true;
+    }
 
     const previous = this._privacyMode;
     this._privacyMode = state;
+    if (this._config.rtsp_camera_entity) {
+      // Keep Generic Camera RTSP running beneath an opaque overlay.
+      // It resumes frames by itself; do not tear down and renegotiate video.
+      this._applyRtspPrivacyMask();
+      return true;
+    }
     if (state === "off") {
       this._pauseNativeVideo("Tryb prywatności — podgląd wyłączony");
     } else if (previous === "off") {
@@ -293,15 +302,34 @@ class MatterCameraPTZCard extends HTMLElement {
     return true;
   }
 
+  _applyRtspPrivacyMask() {
+    if (!this._config?.rtsp_camera_entity) return;
+    const slot = this.shadowRoot.querySelector(".video");
+    if (!slot) return;
+    slot.style.position = "relative";
+    let overlay = slot.querySelector(".rtsp-privacy-overlay");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.className = "rtsp-privacy-overlay";
+      overlay.textContent = "Tryb prywatności — podgląd ukryty";
+      overlay.setAttribute("role", "status");
+      overlay.style.cssText = "position:absolute;inset:0;background:#111c26;color:#fff;z-index:10;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;box-sizing:border-box;";
+      slot.appendChild(overlay);
+    }
+    // Overlay hides stale RTSP frames; browser may keep decoding beneath.
+    overlay.style.display = this._privacyMode === "off" ? "flex" : "none";
+    this._debug("RTSP privacy overlay: "+(this._privacyMode === "off" ? "shown" : "hidden"));
+  }
+
   async _loadVideo(token) {
     const slot=this.shadowRoot.querySelector(".video");
     try {
       if(typeof window.loadCardHelpers!=="function") throw new Error("Lovelace card helpers unavailable");
       const helpers=await window.loadCardHelpers();
       if(token!==this._token||!slot?.isConnected)return;
-      const config = this._config.native_camera_entity ? {
+      const config = (this._config.native_camera_entity || this._config.rtsp_camera_entity) ? {
         type:"picture-entity",
-        entity:this._config.native_camera_entity,
+        entity:this._config.rtsp_camera_entity || this._config.native_camera_entity,
         camera_view:"live",
         show_name:false,
         show_state:false
@@ -316,6 +344,7 @@ class MatterCameraPTZCard extends HTMLElement {
       this._player=player;
       if(this._hass)player.hass=this._hass;
       slot.replaceChildren(player);
+      this._applyRtspPrivacyMask();
       this._debug("embedded picture-entity created");
     } catch(err) {
       if(token!==this._token)return;
