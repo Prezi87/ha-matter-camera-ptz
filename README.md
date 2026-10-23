@@ -168,6 +168,42 @@ local Matter connectivity. Vendor cloud scenes might no longer function.
 The Matter Server WebSocket and any HA credentials should stay on a trusted
 network. **Never post fabric files, tokens, passwords, SDP or ICE candidate IPs.**
 
+### Experimental WebRTC lifecycle diagnostic (not in v0.3.0)
+
+Editing a Lovelace dashboard may call `setConfig()` again on an existing card
+or remove and recreate the entire card. Both cases can terminate the native
+WebRTC session. In v0.3.0 the bundled joystick card unnecessarily rebuilt
+its nested live view on **every** repeated `setConfig` call.
+
+On the `fix/webrtc-card-lifecycle` test branch, the card instead keeps its
+existing player if the **video source** has not changed; control/button styling
+updates in place. It does not try to keep a player alive after Home Assistant
+**disconnects and replaces the entire card** — doing so could leak camera
+streams.
+
+To identify what Home Assistant is doing during dashboard edits, opt in on
+the **test branch only**:
+
+```yaml
+debug: true
+```
+
+Open the browser's developer console, enter/exit dashboard edit mode, and
+look for `[Matter Camera PTZ #N]` messages:
+
+- `setConfig: unchanged` or `update controls in place`: same card, old
+  v0.3.0 implementation would have restarted video.
+- `disconnected` followed by a new `connected` with **a new # number**:
+  HA recreated the custom element. The video session will necessarily be
+  negotiated again, independently of `setConfig` optimizations.
+- `render: replacing embedded video player`: video is being rebuilt by the
+  card itself.
+
+INFO-level `Matter video timing:` backend messages already exist in
+v0.3.0 and can further separate SDP/ICE preparation from first-frame latency.
+Never share raw SDP, ICE IPs, tokens, or fabric data. Restore the published
+v0.3.0 frontend module if a test branch misbehaves.
+
 ## Diagnostics and known limitations
 
 - The supported path was tested on **one Aqara G350** with Matter.js Server
