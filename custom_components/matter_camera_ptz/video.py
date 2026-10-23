@@ -83,6 +83,9 @@ class MatterVideoSession:
             "client_session_key": self._key,
             "stream_usage": "LiveView",
             "sdp": offer_sdp,
+            # Diagnostic: ask Matter to use no external STUN/TURN servers.
+            # This cannot disable camera firmware ICE servers configured independently.
+            "ice_servers": [],
         }
         try:
             result = await self._call("camera_start_stream", args, timeout=45)
