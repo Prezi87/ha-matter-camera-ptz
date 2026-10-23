@@ -225,3 +225,154 @@ test("native Matter privacy works without any Aqara helper", async () => {
   assert.equal(restarts,2);
   card._cancelVideoRestart();
 });
+
+
+test("repeated setConfig on connected card preserves the active WebRTC player", () => {
+  const card = new Card();
+  const properties = {};
+  const inner = {style: {setProperty: (name,value) => properties[name]=value}};
+  const title = {textContent: ""};
+  card.shadowRoot.querySelector = (selector) =>
+    selector==="ha-card" ? inner : selector===".title" ? title : null;
+  Object.defineProperty(card, "isConnected", {value: true});
+  card._built = true;
+  const original = {
+    title:"Aqara G350",
+    native_camera_entity:"camera.g350",
+    ptz_entity:"button.g350_pan_left",
+    privacy_switch_entity:"switch.g350_privacy_mode",
+    button_size:62,
+  };
+  card._config = {...original};
+  let renders = 0;
+  const originalPlayer = {};
+  card._player = originalPlayer;
+  card._render = () => renders++;
+  card.setConfig({...original});
+  assert.equal(renders,0);
+  assert.equal(card._player,originalPlayer);
+
+  // Edit-mode changes to visual/control settings also must not restart video.
+  card.setConfig({...original, title:"Salon", button_size:50, pan_per_second:35});
+  assert.equal(renders,0);
+  assert.equal(card._player,originalPlayer);
+  assert.equal(properties["--ptz-size"],"50px");
+  assert.equal(title.textContent,"Salon");
+
+  // A different camera source must still recreate the player.
+  card.setConfig({...original, native_camera_entity:"camera.other"});
+  assert.equal(renders,1);
+});
+
+test("card logs re-render lifecycle only when explicitly opted in", () => {
+  const card = new Card();
+  Object.defineProperty(card, "isConnected", {value:true});
+  card._built = true;
+  card._config = {
+    native_camera_entity: "camera.g350",
+    ptz_entity: "button.g350",
+    debug: false
+  };
+  card._render = () => { throw Error("identical config must not rerender"); };
+  card.setConfig({...card._config});
+});
+
+
+test("dashboard detach and reconnect retains embedded picture-entity DOM", () => {
+  const card = new Card();
+  card._config = {
+    ptz_entity:"button.g350_pan_left",
+    native_camera_entity:"camera.g350_live",
+    privacy_switch_entity:"switch.g350_privacy",
+    privacy_status_entity:"binary_sensor.g350_live_view_blocked"
+  };
+  let connected = true;
+  Object.defineProperty(card,"isConnected",{get:()=>connected});
+  card._built = true;
+  card._privacyMode = "on";
+  card._lastReportedPrivacyState = "off";
+  const player = {hass:null};
+  card._player = player;
+  card._hass = {states:{
+    "switch.g350_privacy":{state:"off"},
+    "binary_sensor.g350_live_view_blocked":{state:"off"}
+  }};
+  let render = 0, restart = 0;
+  card._render = () => render++;
+  card._restartNativeVideo = () => restart++;
+  card._refreshPrivacy = () => {};
+  connected = false;
+  card.disconnectedCallback();
+  assert.equal(card._player,player);
+  assert.equal(card._built,true);
+  assert.equal(card._privacyMode,"on");
+  connected = true;
+  card.connectedCallback();
+  assert.equal(card._player,player);
+  assert.equal(render,0,"must not rebuild card on same element reattach");
+  assert.equal(restart,0,"allow native HA player to reconnect itself");
+});
+
+test("interrupted initial video loading retries once on dashboard reconnect", () => {
+  const card = new Card();
+  card._config = {
+    ptz_entity: "button.g350",
+    native_camera_entity:"camera.g350_live",
+  };
+  Object.defineProperty(card,"isConnected",{value:true});
+  card._built = true;
+  card._player = null;
+  card._privacyMode = "on";
+  card._refreshPrivacy = () => {};
+  let restarts=0;
+  card._restartNativeVideo=()=>restarts++;
+  card.disconnectedCallback();
+  card.connectedCallback();
+  assert.equal(restarts,1);
+});
+
+test("privacy-blocked disconnected card never reloads video on reconnect", () => {
+  const card = new Card();
+  card._config = {
+    ptz_entity:"button.g350",
+    native_camera_entity:"camera.g350_live",
+    privacy_switch_entity:"switch.g350_privacy"
+  };
+  Object.defineProperty(card,"isConnected",{value:true});
+  card._built=true;
+  card._player=null;
+  card._privacyMode="off";
+  card._hass={states:{"switch.g350_privacy":{state:"on"}}};
+  card._refreshPrivacy=()=>{};
+  let restarted=0;
+  card._restartNativeVideo=()=>restarted++;
+  card.disconnectedCallback();
+  card.connectedCallback();
+  assert.equal(restarted,0);
+  assert.equal(card._privacyMode,"off");
+});
+
+test("pending resume timer is safely recreated after edit-mode reconnect", () => {
+  const card = new Card();
+  card._config = {
+    ptz_entity:"button.g350",
+    native_camera_entity:"camera.g350_live",
+    privacy_switch_entity:"switch.g350_privacy",
+    privacy_resume_delay_ms:0
+  };
+  Object.defineProperty(card,"isConnected",{value:true});
+  card._built=true;
+  card._privacyMode="on";
+  card._player=null;
+  card._hass={states:{"switch.g350_privacy":{state:"off"}}};
+  card._refreshPrivacy=()=>{};
+  let count=0;
+  card._restartNativeVideo=()=>count++;
+  card._videoRestartTimer=setTimeout(()=>{},100000);
+  card.disconnectedCallback();
+  assert.equal(card._videoRestartTimer,null);
+  assert.equal(card._resumeOnReconnect,true);
+  card.connectedCallback();
+  assert.equal(count,1);
+  assert.equal(card._resumeOnReconnect,false);
+});

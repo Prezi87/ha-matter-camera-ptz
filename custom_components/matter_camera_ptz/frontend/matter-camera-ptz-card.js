@@ -1,4 +1,6 @@
-/* Matter Camera PTZ Card -- experimental v0.3.0-beta.3 */
+/* Matter Camera PTZ Card -- WebRTC lifecycle diagnostics (v0.3.1 candidate) */
+let cardInstanceNumber = 0;
+const VIDEO_SOURCE_KEYS = ["native_camera_entity","camera_entity","stream","muted","video_controls"];
 const directions = {
   left:["mdi:arrow-left-bold","Pan left"], right:["mdi:arrow-right-bold","Pan right"],
   up:["mdi:arrow-up-bold","Tilt up"], down:["mdi:arrow-down-bold","Tilt down"],
@@ -31,18 +33,61 @@ class MatterCameraPTZCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({mode:"open"});
+    this._instanceNumber = ++cardInstanceNumber;
     this._pressed = new Map();
     this._timers = new Map();
     this._token = 0;
     this._videoRestartTimer = null;
     this._privacyMode = undefined;
+    this._resumeOnReconnect = false;
   }
 
+  // HA can call setConfig again while entering dashboard edit mode, even
+  // when neither the camera source nor the configuration actually changed.
+  // Avoid tearing down the active nested picture-entity/WebRTC player.
   setConfig(config) {
     if (!config.ptz_entity) throw new Error("Matter PTZ: ptz_entity is required");
-    if (!config.stream && !config.camera_entity && !config.native_camera_entity) throw new Error("Matter PTZ: native_camera_entity, stream or camera_entity is required");
+    if (!config.stream && !config.camera_entity && !config.native_camera_entity)
+      throw new Error("Matter PTZ: native_camera_entity, stream or camera_entity is required");
+
+    const old = this._config;
+    const changed = !old || JSON.stringify(old) !== JSON.stringify(config);
+    const videoChanged = !old || VIDEO_SOURCE_KEYS.some(key => old[key] !== config[key]);
     this._config = {...config};
-    if (this.isConnected) this._render();
+
+    if (!this.isConnected) {
+      this._debug("setConfig while disconnected");
+      return;
+    }
+    if (!this._built || videoChanged) {
+      this._debug("setConfig: rebuild needed (video source changed or not built)");
+      this._render();
+    } else if (changed) {
+      this._debug("setConfig: update controls in place; preserve WebRTC player");
+      this._updateDisplay();
+      this._syncPrivacyVideo();
+      this._refreshPrivacy();
+    } else {
+      this._debug("setConfig: unchanged; keeping WebRTC session");
+    }
+  }
+
+  _debug(message) {
+    if (this._config?.debug === true) {
+      console.info("[Matter Camera PTZ #"+this._instanceNumber+"] "+
+        (typeof performance !== "undefined" ? performance.now().toFixed(0)+"ms " : "")+
+        message);
+    }
+  }
+
+  _updateDisplay() {
+    const card = this.shadowRoot.querySelector("ha-card");
+    const title = this.shadowRoot.querySelector(".title");
+    if (card) {
+      card.style.setProperty("--ptz-size", this._value("button_size",62,44,82)+"px");
+      card.style.setProperty("--ptz-gap", this._value("gap",8,4,18)+"px");
+    }
+    if (title) title.textContent = this._config.title||"Matter Camera PTZ";
   }
   set hass(hass) {
     this._hass = hass;
@@ -55,14 +100,41 @@ class MatterCameraPTZCard extends HTMLElement {
   getGridOptions() { return {columns:12,min_columns:6,rows:8}; }
   static getStubConfig() { return {ptz_entity:"button.replace_with_ptz_entity",stream:"go2rtc_stream_name"}; }
 
-  connectedCallback() { if (this._config && !this._built) this._render(); }
+  connectedCallback() {
+    this._debug("connected (built="+Boolean(this._built)+")");
+    if (!this._config) return;
+    if (!this._built) {
+      this._render();
+      return;
+    }
+    // Home Assistant reconnects its own ha-web-rtc-player when the existing
+    // DOM is reattached. Do not delete and recreate picture-entity here.
+    this._debug("reconnected: preserved embedded player DOM");
+    const wasBlocked = this._privacyMode === "off";
+    this._syncPrivacyVideo();
+    this._refreshPrivacy();
+    if (this._resumeOnReconnect) {
+      this._resumeOnReconnect = false;
+      if (this._privacyMode !== "off" && !this._videoRestartTimer)
+        this._restartNativeVideo();
+    } else if (!wasBlocked && !this._player && !this._videoRestartTimer &&
+               this._config.native_camera_entity && this._privacyMode !== "off") {
+      // Initial asynchronous load was interrupted before the player existed.
+      this._debug("reconnected: retry interrupted embedded player load");
+      this._restartNativeVideo();
+    }
+  }
   disconnectedCallback() {
+    this._debug("disconnected (HA WebRTC player manages its own cleanup)");
     this._stopAll();
-    this._cancelVideoRestart();
+    if (this._videoRestartTimer !== null) {
+      this._resumeOnReconnect = true;
+      this._cancelVideoRestart();
+    }
+    // Invalidate outstanding card helper loads, but preserve the nested player,
+    // privacy status and shadow DOM. HA's ha-web-rtc-player already executes
+    // its own _cleanUp() on detach and reconnects when reattached.
     this._token++;
-    this._player = null;
-    this._privacyMode = undefined;
-    this._built = false;
   }
 
   _stopAll() {
@@ -72,10 +144,12 @@ class MatterCameraPTZCard extends HTMLElement {
   }
 
   _render() {
+    this._debug("render: replacing embedded video player");
     this._stopAll();
     this._cancelVideoRestart();
     this._privacyMode = undefined;
     this._lastReportedPrivacyState = undefined;
+    this._resumeOnReconnect = false;
     const token=++this._token;
     const size=this._value("button_size",62,44,82);
     const gap=this._value("gap",8,4,18);
@@ -242,6 +316,7 @@ class MatterCameraPTZCard extends HTMLElement {
       this._player=player;
       if(this._hass)player.hass=this._hass;
       slot.replaceChildren(player);
+      this._debug("embedded picture-entity created");
     } catch(err) {
       if(token!==this._token)return;
       const label=document.createElement("div");

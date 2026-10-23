@@ -168,6 +168,54 @@ local Matter connectivity. Vendor cloud scenes might no longer function.
 The Matter Server WebSocket and any HA credentials should stay on a trusted
 network. **Never post fabric files, tokens, passwords, SDP or ICE candidate IPs.**
 
+### Experimental WebRTC lifecycle diagnostic (not in v0.3.0)
+
+Editing a Lovelace dashboard may call `setConfig()` again on an existing card
+or remove and recreate the entire card. Both cases can terminate the native
+WebRTC session. In v0.3.0 the bundled joystick card unnecessarily rebuilt
+its nested live view on **every** repeated `setConfig` call.
+
+On the `fix/webrtc-card-lifecycle` test branch, the outer card now
+preserves its embedded `picture-entity` DOM when **the same instance is
+temporarily detached and reattached**. It also preserves the player for repeated
+`setConfig()` calls with unchanged video source. Pending helper loads and
+privacy restart timers are handled separately; privacy-blocked video remains
+blocked.
+
+**Important limitation confirmed in upstream HA frontend:** its
+`ha-web-rtc-player` always calls `_cleanUp()` on DOM disconnect and
+`_startWebRtc()` on reconnect. Retaining the card DOM therefore prevents
+**redundant outer-card reconstruction**, but cannot guarantee that the
+native WebRTC media connection stays open during dashboard edit mode.
+Preserving orphaned players outside the DOM would risk leaking video sessions,
+so this PR does not attempt it. The actual ~5–7s handshake must be
+investigated separately.
+
+To identify what Home Assistant is doing during dashboard edits, opt in on
+the **test branch only**:
+
+```yaml
+debug: true
+```
+
+Open the browser's developer console, enter/exit dashboard edit mode, and
+look for `[Matter Camera PTZ #N]` messages:
+
+- `setConfig: unchanged` or `update controls in place`: same card, old
+  v0.3.0 implementation would have restarted video.
+- `disconnected` → `connected (built=true)` with the **same # number**:
+  the test card reused its DOM; HA's inner WebRTC player may still reconnect.
+- `disconnected` followed by a new `connected` with **a new # number**:
+  HA recreated the custom element. The video session will necessarily be
+  negotiated again, independently of `setConfig` optimizations.
+- `render: replacing embedded video player`: video is being rebuilt by the
+  card itself.
+
+INFO-level `Matter video timing:` backend messages already exist in
+v0.3.0 and can further separate SDP/ICE preparation from first-frame latency.
+Never share raw SDP, ICE IPs, tokens, or fabric data. Restore the published
+v0.3.0 frontend module if a test branch misbehaves.
+
 ## Diagnostics and known limitations
 
 - The supported path was tested on **one Aqara G350** with Matter.js Server
