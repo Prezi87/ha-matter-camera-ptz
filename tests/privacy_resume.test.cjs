@@ -376,3 +376,61 @@ test("pending resume timer is safely recreated after edit-mode reconnect", () =>
   assert.equal(count,1);
   assert.equal(card._resumeOnReconnect,false);
 });
+
+
+test("RTSP privacy changes only overlay and never restarts camera", () => {
+  const card=new Card();
+  const overlay={style:{display:"none"}};
+  const slot={
+    style:{},
+    _overlay:null,
+    querySelector:(sel)=>sel===".rtsp-privacy-overlay"?slot._overlay:null,
+    appendChild:(node)=>{slot._overlay=node;},
+  };
+  card.shadowRoot.querySelector=(sel)=>sel===".video"?slot:null;
+  card._config={
+    rtsp_camera_entity:"camera.g350_rtsp",
+    ptz_entity:"button.g350_left",
+    privacy_switch_entity:"switch.g350_privacy",
+    privacy_status_entity:"binary_sensor.g350_live_view_blocked"
+  };
+  card._built=true;
+  let restarts=0,pauses=0;
+  card._restartNativeVideo=()=>restarts++;
+  card._pauseNativeVideo=()=>pauses++;
+  card._refreshPrivacy=()=>{};
+  global.document={createElement:()=>({
+    style:{},
+    setAttribute:()=>{},
+    className:"",
+    textContent:""
+  })};
+  const hass=(privacy)=>({states:{
+    "switch.g350_privacy":{state:privacy?"on":"off"},
+    "binary_sensor.g350_live_view_blocked":{state:privacy?"on":"off"}
+  }});
+  card.hass=hass(false);
+  assert.equal(slot._overlay.style.display,"none");
+  card.hass=hass(true);
+  assert.equal(slot._overlay.style.display,"flex");
+  card.hass=hass(false);
+  assert.equal(slot._overlay.style.display,"none");
+  assert.equal(restarts,0);
+  assert.equal(pauses,0);
+});
+
+test("RTSP source change requests re-render, cosmetic changes do not", () => {
+  const card=new Card();
+  Object.defineProperty(card,"isConnected",{value:true});
+  card._built=true;
+  card._config={rtsp_camera_entity:"camera.g350_rtsp",ptz_entity:"button.g350"};
+  let renders=0;
+  card._render=()=>renders++;
+  card._updateDisplay=()=>{};
+  card._syncPrivacyVideo=()=>{};
+  card._refreshPrivacy=()=>{};
+  card.setConfig({...card._config,title:"Salon"});
+  assert.equal(renders,0);
+  card.setConfig({...card._config,rtsp_camera_entity:"camera.another"});
+  assert.equal(renders,1);
+});
