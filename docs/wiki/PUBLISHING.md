@@ -13,14 +13,16 @@ On a computer with Git and repository write access (HTTPS token or configured SS
 ```bash
 git clone https://github.com/Prezi87/ha-matter-camera-ptz.git
 git clone https://github.com/Prezi87/ha-matter-camera-ptz.wiki.git
-cp ha-matter-camera-ptz/docs/wiki/*.md ha-matter-camera-ptz.wiki/
+for page in Home _Sidebar Installation Lovelace-Card Privacy-and-PTZ Offline-G350-and-Networking Troubleshooting FAQ; do
+  cp "ha-matter-camera-ptz/docs/wiki/$page.md" ha-matter-camera-ptz.wiki/
+done
 cd ha-matter-camera-ptz.wiki
-git add .
+git add Home.md _Sidebar.md Installation.md Lovelace-Card.md Privacy-and-PTZ.md Offline-G350-and-Networking.md Troubleshooting.md FAQ.md
 git commit -m "docs: publish Matter Camera PTZ v0.3.1 wiki"
 git push origin master
 ```
 
-If the Wiki repository default branch is different, push its actual current branch rather than assuming `master`. Run `git branch --show-current` to check. Commit only intended changed pages; avoid `git add .` if the Wiki contains unrelated material.
+If the Wiki repository default branch is different, push its actual current branch rather than assuming `master`. Run `git branch --show-current` to check. Commit only intended changed pages; review the staged changes before committing.
 
 Verify `Home`, `Installation`, `Lovelace-Card`, `Privacy-and-PTZ`, `Offline-G350-and-Networking`, `Troubleshooting` and `FAQ` in the Wiki navigation.
 
