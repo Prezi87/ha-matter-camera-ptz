@@ -22,6 +22,10 @@ video, PTZ, privacy sensor state, and native privacy switch continue to work
 locally. When WAN was blocked, the first live image took approximately **7 seconds**;
 the behavior appears linked to G350's WAN-dependent startup, and is documented in [issue #3](https://github.com/Prezi87/ha-matter-camera-ptz/issues/3).
 
+## Documentation
+
+The [GitHub Wiki](https://github.com/Prezi87/ha-matter-camera-ptz/wiki) is the long-form guide to installation, dashboard setup, privacy, offline networking and troubleshooting. Version-controlled Wiki source pages are maintained in [docs/wiki](docs/wiki).
+
 ## Requirements
 
 - Home Assistant with HACS (recommended).
@@ -168,53 +172,22 @@ local Matter connectivity. Vendor cloud scenes might no longer function.
 The Matter Server WebSocket and any HA credentials should stay on a trusted
 network. **Never post fabric files, tokens, passwords, SDP or ICE candidate IPs.**
 
-### Experimental WebRTC lifecycle diagnostic (not in v0.3.1)
+### WebRTC lifecycle (v0.3.1)
 
-Editing a Lovelace dashboard may call `setConfig()` again on an existing card
-or remove and recreate the entire card. Both cases can terminate the native
-WebRTC session. In v0.3.1 the bundled joystick card unnecessarily rebuilt
-its nested live view on **every** repeated `setConfig` call.
+The bundled v0.3.1 card preserves its embedded `picture-entity` DOM
+on repeated configuration updates and temporary detach/reattach of
+the same Lovelace card instance. It avoids unnecessary outer-card
+rerenders, while Home Assistant's inner WebRTC player may still close
+and renegotiate a media session when detached by dashboard edit mode.
 
-On the `fix/webrtc-card-lifecycle` test branch, the outer card now
-preserves its embedded `picture-entity` DOM when **the same instance is
-temporarily detached and reattached**. It also preserves the player for repeated
-`setConfig()` calls with unchanged video source. Pending helper loads and
-privacy restart timers are handled separately; privacy-blocked video remains
-blocked.
+To diagnose the card lifecycle, add `debug: true` to the card temporarily
+and inspect browser developer console messages with prefix
+`[Matter Camera PTZ #N]`. Remove `debug: true` after testing.
 
-**Important limitation confirmed in upstream HA frontend:** its
-`ha-web-rtc-player` always calls `_cleanUp()` on DOM disconnect and
-`_startWebRtc()` on reconnect. Retaining the card DOM therefore prevents
-**redundant outer-card reconstruction**, but cannot guarantee that the
-native WebRTC media connection stays open during dashboard edit mode.
-Preserving orphaned players outside the DOM would risk leaking video sessions,
-so this PR does not attempt it. The actual ~5–7s handshake must be
-investigated separately.
-
-To identify what Home Assistant is doing during dashboard edits, opt in on
-the **test branch only**:
-
-```yaml
-debug: true
-```
-
-Open the browser's developer console, enter/exit dashboard edit mode, and
-look for `[Matter Camera PTZ #N]` messages:
-
-- `setConfig: unchanged` or `update controls in place`: same card, old
-  v0.3.1 implementation would have restarted video.
-- `disconnected` → `connected (built=true)` with the **same # number**:
-  the test card reused its DOM; HA's inner WebRTC player may still reconnect.
-- `disconnected` followed by a new `connected` with **a new # number**:
-  HA recreated the custom element. The video session will necessarily be
-  negotiated again, independently of `setConfig` optimizations.
-- `render: replacing embedded video player`: video is being rebuilt by the
-  card itself.
-
-INFO-level `Matter video timing:` backend messages already exist in
-v0.3.1 and can further separate SDP/ICE preparation from first-frame latency.
-Never share raw SDP, ICE IPs, tokens, or fabric data. Restore the published
-v0.3.1 frontend module if a test branch misbehaves.
+This release also buffers remote ICE candidates until after the SDP answer
+has been forwarded, mitigating `addIceCandidate: remote description was null`
+reported in G350 tests. The external-WAN-isolated G350 startup delay
+remains documented in [#3](https://github.com/Prezi87/ha-matter-camera-ptz/issues/3).
 
 ## Diagnostics and known limitations
 
